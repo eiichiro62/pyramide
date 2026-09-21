@@ -159,6 +159,7 @@
       <button class="tab-btn" onclick="switchTab('matchesTab', event)">⚔️ Défis & Chat Privé</button>
       <button class="tab-btn" onclick="switchTab('statsTab', event)">📊 Classements</button>
       <button class="tab-btn" onclick="switchTab('registerTab', event)">➕ Inscription</button>
+      <button id="adminTabBtn" class="tab-btn" onclick="switchTab('adminTab', event)" style="display:none;">⚙️ Admin</button>
     </div>
 
     <div id="pyramidTab" class="tab-content active">
@@ -252,12 +253,25 @@
               <option value="30/3">30/3</option>
               <option value="30/2">30/2</option>
               <option value="30/1">30/1</option>
+              <option value="30">30</option>
+              <option value="15/5">15/5</option>
+              <option value="15/4">15/4</option>
+              <option value="15/3">15/3</option>
+              <option value="15/2">15/2</option>
+              <option value="15/1">15/1</option>
             </select>
           </div>
           <button type="submit" class="btn">S'inscrire</button>
         </form>
       </div>
+      <div id="adminTab" class="tab-content" style="display:none;">
+    <h2>⚙️ Panneau d'administration</h2>
+    <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+        <h3>Gestion du Championnat</h3>
+        <p>Espace réservé à l'administrateur pour la gestion du club.</p>
     </div>
+</div>
+  </div>
 
   </div>
 
@@ -277,6 +291,7 @@
       await loadData();
       populateUserSelect();
       updateView();
+      changeCurrentUser(state.currentUserId);
     }
 
     async function loadData() {
@@ -303,6 +318,15 @@
     function changeCurrentUser(id) {
       state.currentUserId = id;
       updateView();
+      const currentUser = state.players.find(p => p.id == state.currentUserId);
+    const adminBtn = document.getElementById('adminTabBtn');
+    if (adminBtn) {
+        if (currentUser && currentUser.role === 'admin') {
+            adminBtn.style.display = 'inline-block';
+        } else {
+            adminBtn.style.display = 'none';
+        }
+    }
     }
 
     function getCurrentUserIndex() {
