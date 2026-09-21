@@ -312,10 +312,10 @@ function checkAdmin() {
     }
 }
     if (currentUser && currentUser.role === 'admin') {
-        adminBtn.style.display = 'inline-block';
-    } else {
-        adminBtn.style.display = 'none';
-    }
+    adminBtn.style.display = 'inline-block';
+} else {
+    adminBtn.style.display = 'none';
+}
 }
 
     async function loadData() {
