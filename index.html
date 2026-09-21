@@ -311,12 +311,7 @@ function checkAdmin() {
         adminBtn.style.display = 'none';
     }
 }
-    if (currentUser && currentUser.role === 'admin') {
-    adminBtn.style.display = 'inline-block';
-} else {
-    adminBtn.style.display = 'none';
-}
-}
+
 
     async function loadData() {
       const { data: players } = await _supabase.from('players').select('*').order('position', { ascending: true });
