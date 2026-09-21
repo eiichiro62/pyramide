@@ -296,14 +296,17 @@
 }
 
 function checkAdmin() {
-    const currentUser = state.players.find(p => p.id == state.currentUserId);
     const adminBtn = document.getElementById('adminTabBtn');
-    if (adminBtn) {
-        if (currentUser && currentUser.role === 'admin') {
-            adminBtn.style.display = 'inline-block';
-        } else {
-            adminBtn.style.display = 'none';
-        }
+    if (!adminBtn) return;
+
+    // On récupère le joueur sélectionné
+    const currentUser = state.players.find(p => String(p.id) === String(state.currentUserId));
+
+    // Si le rôle est 'admin', on affiche le bouton
+    if (currentUser && currentUser.role === 'admin') {
+        adminBtn.style.display = 'inline-block';
+    } else {
+        adminBtn.style.display = 'none';
     }
 }
 
