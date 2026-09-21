@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Championnat Pyramide - Tennis</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --accent-color: #0284c7;
+      --accent-hover: #0369a1;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --busy-color: #ef4444;
+      --target-color: #eab308;
+      --active-color: #22c55e;
+      --pending-color: #f97316;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-main); padding: 20px; text-align: center; }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    .user-bar {
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 10px 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .user-selector { display: flex; align-items: center; gap: 10px; }
+    .user-selector select { padding: 6px 12px; border-radius: 6px; background: #0f172a; color: white; border: 1px solid #334155; font-weight: bold; }
+
+    h1 { margin-bottom: 5px; color: #38bdf8; }
+    p.subtitle { color: var(--text-muted); margin-bottom: 20px; }
+
+    .nav-tabs { display: flex; justify-content: center; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; }
+    .tab-btn { background: var(--card-bg); border: 1px solid #334155; color: var(--text-main); padding: 10px 20px; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; }
+    .tab-btn.active, .tab-btn:hover { background: var(--accent-color); border-color: var(--accent-color); }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-bottom: 25px;
+      text-align: left;
+    }
+    .rule-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-left: 4px solid var(--accent-color);
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+    .rule-card h4 { color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+
+    .pyramid-container { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 20px 0; overflow-x: auto; padding: 10px; }
+    .pyramid-row { display: flex; justify-content: center; gap: 10px; }
+
+    .player-card {
+      background: var(--card-bg);
+      border: 2px solid #334155;
+      border-radius: 8px;
+      padding: 8px;
+      width: 130px;
+      min-height: 75px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .player-card:hover { transform: translateY(-3px); border-color: var(--accent-color); }
+    .player-card .rank { position: absolute; top: 4px; left: 6px; font-size: 0.75rem; color: var(--text-muted); font-weight: bold; }
+    .player-card .gender-icon { position: absolute; top: 4px; right: 6px; font-size: 0.75rem; }
+    .player-card .name { font-weight: bold; font-size: 0.9rem; margin-top: 5px; word-break: break-word; }
+    .player-card .badge { font-size: 0.7rem; background: #334155; padding: 2px 6px; border-radius: 4px; margin-top: 4px; }
+
+    .player-card.is-me { border-color: #38bdf8; background: #0c4a6e; }
+    .player-card.eligible { border-color: var(--target-color); background: #2d2a1e; animation: pulse 1.5s infinite; }
+    .player-card.busy { border-color: var(--busy-color); opacity: 0.8; }
+    .player-card.busy::after { content: 'EN MATCH'; position: absolute; bottom: 2px; font-size: 0.6rem; color: var(--busy-color); font-weight: bold; }
+    .player-card.disqualified { border-color: #64748b; background: #0f172a; opacity: 0.4; cursor: not-allowed; }
+    .player-card.disqualified::after { content: 'DISQUALIFIÉ'; position: absolute; bottom: 2px; font-size: 0.6rem; color: #ef4444; font-weight: bold; }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+    }
+
+    .honors-banner {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 1px solid #eab308;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 25px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+    .honor-item { font-size: 0.85rem; text-align: center; }
+    .honor-item span { display: block; font-size: 1.2rem; margin-top: 4px; font-weight: bold; color: #eab308; }
+
+    .chat-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    .chat-box { background: #1e293b; border-radius: 8px; padding: 12px; height: 200px; overflow-y: auto; margin: 10px 0; border: 1px solid #334155; }
+    .chat-msg { font-size: 0.85rem; margin-bottom: 6px; text-align: left; }
+    .chat-msg .sender { font-weight: bold; color: #38bdf8; }
+
+    .action-panel { background: var(--card-bg); border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155; text-align: left; }
+    .btn { background: var(--accent-color); color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-danger { background: var(--busy-color); }
+    .btn-success { background: var(--active-color); }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; background: var(--card-bg); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; }
+    th { background: #0f172a; color: #38bdf8; }
+
+    .form-group { margin-bottom: 15px; text-align: left; }
+    .form-group label { display: block; margin-bottom: 5px; color: var(--text-muted); }
+    .form-group input, .form-group select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <div class="user-bar">
+      <div class="user-selector">
+        <label for="currentUserSelect">👤 Joueur connecté :</label>
+        <select id="currentUserSelect" onchange="changeCurrentUser(this.value)"></select>
+      </div>
+      <div id="userStatusAlert" style="font-size: 0.85rem; color: #38bdf8; font-weight: bold;">Connecté à la base Supabase</div>
+    </div>
+
+    <h1>🎾 Pyramide du Club de Tennis</h1>
+    <p class="subtitle">Fin du championnat le <b>30 juin</b></p>
+
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('pyramidTab', event)">⛰️ La Pyramide</button>
+      <button class="tab-btn" onclick="switchTab('chatTab', event)">💬 Chat Général</button>
+      <button class="tab-btn" onclick="switchTab('matchesTab', event)">⚔️ Défis & Chat Privé</button>
+      <button class="tab-btn" onclick="switchTab('statsTab', event)">📊 Classements</button>
+      <button class="tab-btn" onclick="switchTab('registerTab', event)">➕ Inscription</button>
+    </div>
+
+    <div id="pyramidTab" class="tab-content active">
+      <div class="rules-grid">
+        <div class="rule-card">
+          <h4>🎯 Défis éligibles</h4>
+          Vous pouvez défier tous les joueurs <b>éligibles</b> (en surbrillance jaune).
+        </div>
+        <div class="rule-card">
+          <h4>⏳ Délais & Réservation</h4>
+          <b>1 semaine</b> pour jouer le match. Le challenger réserve le terrain et apporte les balles.
+        </div>
+        <div class="rule-card">
+          <h4>⚠️ Refus & Disqualification</h4>
+          Un refus fait <b>perdre votre place</b>. <b>5 refus = disqualification</b>.
+        </div>
+        <div class="rule-card">
+          <h4>🎾 Matchs Homologués</h4>
+          Format au choix. Tous les matchs 4ème série sont <b>homologués FFT</b>.
+        </div>
+      </div>
+
+      <div id="pyramidDisplay" class="pyramid-container"></div>
+
+      <div class="honors-banner">
+        <div class="honor-item">🥇 Leader actuel <span><small id="honorFirst">-</small></span></div>
+        <div class="honor-item">🚀 Meilleure Progression <span><small id="honorProgression">-</small></span></div>
+        <div class="honor-item">🔥 Plus grand nombre de matchs <span><small id="honorMostMatches">-</small></span></div>
+      </div>
+    </div>
+
+    <div id="chatTab" class="tab-content">
+      <div class="action-panel" style="max-width: 700px; margin: 0 auto;">
+        <h2>💬 Chat Général du Club</h2>
+        <div class="chat-box" id="generalChatBox"></div>
+        <div style="display:flex; gap:10px;">
+          <input type="text" id="generalChatInput" placeholder="Écrire un message au club..." style="flex:1; padding:10px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:white;">
+          <button class="btn" onclick="sendGeneralMessage()">Envoyer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="matchesTab" class="tab-content">
+      <h2>Défis en cours & Chat Privé de Match</h2>
+      <div id="matchesList" style="margin-top: 15px;"></div>
+    </div>
+
+    <div id="statsTab" class="tab-content">
+      <h2>Classement Général & Historique</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Pos.</th>
+            <th>Joueur</th>
+            <th>Sexe</th>
+            <th>Classement FFT</th>
+            <th>Matchs</th>
+            <th>Victoires</th>
+            <th>Refus</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody id="statsTableBody"></tbody>
+      </table>
+    </div>
+
+    <div id="registerTab" class="tab-content">
+      <div class="action-panel" style="max-width: 500px; margin: 0 auto;">
+        <h2>Inscrire un nouveau joueur</h2>
+        <form id="registerForm" style="margin-top: 15px;">
+          <div class="form-group">
+            <label for="playerName">Nom / Prénom</label>
+            <input type="text" id="playerName" required placeholder="Ex: Roger Federer">
+          </div>
+
+          <div class="form-group">
+            <label for="playerGender">Sexe</label>
+            <select id="playerGender">
+              <option value="H">Homme 👨</option>
+              <option value="F">Femme 👩 (-2 classements d'équité)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="fftRank">Classement FFT Officiel</label>
+            <select id="fftRank">
+              <option value="NC">NC</option>
+              <option value="40">40</option>
+              <option value="30/5">30/5</option>
+              <option value="30/4">30/4</option>
+              <option value="30/3">30/3</option>
+              <option value="30/2">30/2</option>
+              <option value="30/1">30/1</option>
+            </select>
+          </div>
+          <button type="submit" class="btn">S'inscrire</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://nzlathoksbeghfhigfav.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bGF0aG9rc2JlZ2hmaGlnZmF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMTY2OTksImV4cCI6MjEwNTU5MjY5OX0.ULm9jKTW3NvTn-BNQjVGFwmm_LnkDqK4OeFYhp1TQ34";
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let state = {
+      players: [],
+      matches: [],
+      generalChat: [],
+      currentUserId: null
+    };
+
+    async function init() {
+      await loadData();
+      populateUserSelect();
+      updateView();
+    }
+
+    async function loadData() {
+      const { data: players } = await _supabase.from('players').select('*').order('position', { ascending: true });
+      const { data: matches } = await _supabase.from('matches').select('*');
+      const { data: messages } = await _supabase.from('messages').select('*').order('created_at', { ascending: true });
+
+      state.players = players || [];
+      state.matches = matches || [];
+      state.generalChat = (messages || []).filter(m => !m.match_id);
+
+      if (state.players.length > 0 && !state.currentUserId) {
+        state.currentUserId = state.players[0].id;
+      }
+    }
+
+    function populateUserSelect() {
+      const select = document.getElementById('currentUserSelect');
+      select.innerHTML = state.players.map((p, idx) => 
+        `<option value="${p.id}" ${p.id === state.currentUserId ? 'selected' : ''}>${p.name} (#${idx + 1})</option>`
+      ).join('');
+    }
+
+    function changeCurrentUser(id) {
+      state.currentUserId = id;
+      updateView();
+    }
+
+    function getCurrentUserIndex() {
+      return state.players.findIndex(p => p.id === state.currentUserId);
+    }
+
+    function updateView() {
+      renderPyramid();
+      renderGeneralChat();
+      renderMatches();
+      renderStats();
+      updateHonors();
+    }
+
+    function getRowAndRange(index) {
+      let row = 1;
+      let count = 0;
+      while (count + row <= index) {
+        count += row;
+        row++;
+      }
+      return { row: row, maxChallengesAllowed: row - 1 };
+    }
+
+    function isEligibleToChallenge(targetIndex) {
+      const myIdx = getCurrentUserIndex();
+      if (myIdx === -1) return false;
+
+      const me = state.players[myIdx];
+      const target = state.players[targetIndex];
+
+      if (me.is_busy || me.is_disqualified || target.is_busy || target.is_disqualified) return false;
+
+      const diff = myIdx - targetIndex;
+      if (diff <= 0) return false;
+
+      const { maxChallengesAllowed } = getRowAndRange(myIdx);
+      return diff <= maxChallengesAllowed;
+    }
+
+    function renderPyramid() {
+      const container = document.getElementById('pyramidDisplay');
+      container.innerHTML = '';
+
+      let currentIndex = 0;
+      let rowSize = 1;
+      const totalPlayers = state.players.length;
+      const myIdx = getCurrentUserIndex();
+
+      while (currentIndex < totalPlayers) {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'pyramid-row';
+
+        for (let i = 0; i < rowSize && currentIndex < totalPlayers; i++) {
+          const player = state.players[currentIndex];
+          const playerIdx = currentIndex;
+
+          const card = document.createElement('div');
+          card.className = 'player-card';
+
+          if (playerIdx === myIdx) card.classList.add('is-me');
+          if (player.is_disqualified) card.classList.add('disqualified');
+          else if (player.is_busy) card.classList.add('busy');
+          else if (isEligibleToChallenge(playerIdx)) card.classList.add('eligible');
+
+          card.innerHTML = `
+            <span class="rank">#${playerIdx + 1}</span>
+            <span class="gender-icon">${player.gender === 'F' ? '👩' : '👨'}</span>
+            <span class="name">${player.name}</span>
+            <span class="badge">${player.fft_rank}</span>
+          `;
+
+          card.onclick = () => handlePlayerClick(playerIdx);
+          rowDiv.appendChild(card);
+          currentIndex++;
+        }
+
+        container.appendChild(rowDiv);
+        rowSize++;
+      }
+    }
+
+    function handlePlayerClick(index) {
+      const myIdx = getCurrentUserIndex();
+      if (index === myIdx) return;
+
+      if (isEligibleToChallenge(index)) {
+        proposeMatch(myIdx, index);
+      } else {
+        const { maxChallengesAllowed } = getRowAndRange(myIdx);
+        alert(`Vous ne pouvez défier que les ${maxChallengesAllowed} joueur(s) au-dessus de vous.`);
+      }
+    }
+
+    async function proposeMatch(challengerIdx, defenderIdx) {
+      const p1 = state.players[challengerIdx];
+      const p2 = state.players[defenderIdx];
+
+      await _supabase.from('players').update({ is_busy: true }).in('id', [p1.id, p2.id]);
+
+      const limitDate = new Date();
+      limitDate.setDate(limitDate.getDate() + 7);
+
+      const { data: newMatch } = await _supabase.from('matches').insert([{
+        challenger_id: p1.id,
+        defender_id: p2.id,
+        status: 'pending',
+        limit_date: limitDate.toISOString().split('T')[0]
+      }]).select().single();
+
+      await _supabase.from('messages').insert([{
+        match_id: newMatch.id,
+        sender_name: 'Système',
+        text: `Défi proposé par ${p1.name}. Date limite : ${limitDate.toLocaleDateString('fr-FR')}.`
+      }]);
+
+      await loadData();
+      updateView();
+      switchTab('matchesTab');
+    }
+
+    function renderGeneralChat() {
+      const box = document.getElementById('generalChatBox');
+      box.innerHTML = state.generalChat.map(m => `
+        <div class="chat-msg"><span class="sender">${m.sender_name}:</span> ${m.text}</div>
+      `).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendGeneralMessage() {
+      const input = document.getElementById('generalChatInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const me = state.players.find(p => p.id === state.currentUserId);
+      await _supabase.from('messages').insert([{
+        sender_name: me ? me.name : 'Anonyme',
+        text: text
+      }]);
+
+      input.value = '';
+      await loadData();
+      renderGeneralChat();
+    }
+
+    function renderMatches() {
+      const container = document.getElementById('matchesList');
+      if (state.matches.length === 0) {
+        container.innerHTML = "<div class='action-panel'><p>Aucun défi en cours.</p></div>";
+        return;
+      }
+
+      const me = state.players.find(p => p.id === state.currentUserId);
+
+      container.innerHTML = state.matches.map(m => {
+        const p1 = state.players.find(p => p.id === m.challenger_id);
+        const p2 = state.players.find(p => p.id === m.defender_id);
+
+        if (!p1 || !p2) return '';
+
+        let actions = '';
+        if (m.status === 'pending') {
+          if (me && me.id === m.defender_id) {
+            actions = `
+              <div style="margin-top:10px;">
+                <button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button>
+                <button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button>
+              </div>`;
+          } else {
+            actions = `<p style="margin-top:10px; color:var(--pending-color)">En attente de ${p2.name}...</p>`;
+          }
+        } else {
+          actions = `
+            <div style="margin-top:10px;">
+              <p style="margin-bottom:5px;">Saisir le résultat :</p>
+              <button class="btn btn-success" onclick="resolveMatch('${m.id}', '${p1.id}')">Victoire ${p1.name}</button>
+              <button class="btn btn-success" onclick="resolveMatch('${m.id}', '${p2.id}')">Victoire ${p2.name}</button>
+            </div>`;
+        }
+
+        return `
+          <div class="match-card" style="background:#0f172a; border:1px solid #334155; padding:15px; border-radius:8px; margin-bottom:15px; text-align:left;">
+            <h3>🎾 ${p1.name} VS ${p2.name}</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted)">Fin de validité : ${m.limit_date}</p>
+            ${actions}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function acceptMatch(matchId) {
+      await _supabase.from('matches').update({ status: 'accepted' }).eq('id', matchId);
+      await loadData();
+      updateView();
+    }
+
+    async function refuseMatch(matchId) {
+      const match = state.matches.find(m => m.id === matchId);
+      const p1 = state.players.find(p => p.id === match.challenger_id);
+      const p2 = state.players.find(p => p.id === match.defender_id);
+
+      await _supabase.from('players').update({ is_busy: false, refusals: p2.refusals + 1 }).eq('id', p2.id);
+      await _supabase.from('players').update({ is_busy: false }).eq('id', p1.id);
+      await _supabase.from('matches').delete().eq('id', matchId);
+
+      await loadData();
+      updateView();
+      alert(`${p2.name} a refusé le défi.`);
+    }
+
+    async function resolveMatch(matchId, winnerId) {
+      const match = state.matches.find(m => m.id === matchId);
+      await _supabase.from('players').update({ is_busy: false }).in('id', [match.challenger_id, match.defender_id]);
+      await _supabase.from('matches').delete().eq('id', matchId);
+
+      await loadData();
+      updateView();
+    }
+
+    function renderStats() {
+      const tbody = document.getElementById('statsTableBody');
+      tbody.innerHTML = state.players.map((p, idx) => `
+        <tr>
+          <td><b>#${idx + 1}</b></td>
+          <td>${p.name}</td>
+          <td>${p.gender === 'F' ? '👩 Femme' : '👨 Homme'}</td>
+          <td>${p.fft_rank}</td>
+          <td>${p.matches_played}</td>
+          <td>${p.wins}</td>
+          <td>${p.refusals}/5</td>
+          <td>${p.is_disqualified ? '❌ Disqualifié' : '✅ Actif'}</td>
+        </tr>
+      `).join('');
+    }
+
+    function updateHonors() {
+      if (state.players.length === 0) return;
+      document.getElementById('honorFirst').innerText = state.players[0].name;
+    }
+
+    document.getElementById('registerForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('playerName').value.trim();
+      const gender = document.getElementById('playerGender').value;
+      const fftRank = document.getElementById('fftRank').value;
+
+      await _supabase.from('players').insert([{ name, gender, fft_rank: fftRank }]);
+
+      document.getElementById('playerName').value = '';
+      await loadData();
+      populateUserSelect();
+      updateView();
+      switchTab('pyramidTab');
+    };
+
+    function switchTab(id, event) {
+      document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      if (event) event.target.classList.add('active');
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
