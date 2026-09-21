@@ -329,19 +329,10 @@ function checkAdmin() {
     }
 
     function changeCurrentUser(id) {
-      state.currentUserId = id;
-      updateView();
-      checkAdmin();
-      const currentUser = state.players.find(p => p.id == state.currentUserId);
-    const adminBtn = document.getElementById('adminTabBtn');
-    if (adminBtn) {
-        if (currentUser && currentUser.role === 'admin') {
-            adminBtn.style.display = 'inline-block';
-        } else {
-            adminBtn.style.display = 'none';
-        }
-    }
-    }
+    state.currentUserId = id;
+    updateView();
+    checkAdmin();
+}
 
     function getCurrentUserIndex() {
       return state.players.findIndex(p => p.id === state.currentUserId);
