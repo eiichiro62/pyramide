@@ -276,13 +276,164 @@
   </div>
 
   </div>
-  <div id="adminTab" class="tab-content" background: #1e293b; padding: 20px;">
-    <h2>⚙️ Panneau d'administration</h2>
-    <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-        <h3>Gestion du Championnat</h3>
-        <p>Espace réservé à l'administrateur pour la gestion du club.</p>
+  <div id="adminTab" class="tab-content">
+  <h2>⚙️ Panneau d'administration</h2>
+
+  <!-- 1. LIENS D'INVITATION & ACCÈS -->
+  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+    <h3>🎟️ Liens d'invitation</h3>
+    <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px;">Générez un lien unique pour contrôler les inscriptions au club.</p>
+    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+      <button onclick="generateInviteLink()" class="btn">Générer un lien unique</button>
+      <input type="text" id="inviteLinkOutput" readonly placeholder="Le lien généré s'affichera ici" style="flex: 1; padding: 8px; border-radius: 5px; border: 1px solid #334155; background: #0f172a; color: #fff;">
     </div>
+  </div>
+
+  <!-- 2. GESTION DES SESSIONS / CHAMPIONNAT -->
+  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+    <h3>🏆 Gestion des Sessions</h3>
+    <div style="display: flex; gap: 15px; align-items: center; margin-top: 10px;">
+      <label>Date de fin de session :</label>
+      <input type="date" id="sessionEndDateInput" style="padding: 8px; border-radius: 5px; border: 1px solid #334155; background: #0f172a; color: #fff;">
+      <button onclick="updateSessionDate()" class="btn">Mettre à jour la date</button>
+    </div>
+    <div style="margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px;">
+      <button onclick="resetPyramidSeason()" class="btn" style="background-color: #ef4444;">⚠️ Clôturer la session et réinitialiser la pyramide</button>
+    </div>
+  </div>
+
+  <!-- 3. GESTION DES JOUEURS -->
+  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+    <h3>👥 Gestion des Joueurs</h3>
+    <div id="adminPlayersList" style="margin-top: 10px;">
+      <!-- Liste injectée par JavaScript -->
+      <p style="color: var(--text-muted);">Chargement de la liste des joueurs...</p>
+    </div>
+  </div>
+
+  <!-- 4. GESTION DES MATCHS & SCORES -->
+  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+    <h3>🎾 Modération des Matchs</h3>
+    <div id="adminMatchesList" style="margin-top: 10px;">
+      <!-- Liste injectée par JavaScript -->
+      <p style="color: var(--text-muted);">Chargement des matchs en cours...</p>
+    </div>
+  </div>
+
+  <!-- 5. MODÉRATION DES MESSAGES -->
+  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
+    <h3>💬 Modération du Tchat</h3>
+    <div id="adminChatList" style="margin-top: 10px;">
+      <!-- Derniers messages injectés par JavaScript -->
+      <p style="color: var(--text-muted);">Chargement des messages...</p>
+    </div>
+  </div>
   <script>
+    // 1. CHANGER LA FONCTION switchTab POUR CHARGER L'ADMIN AU CLIC
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabId) {
+  if (typeof originalSwitchTab === 'function') originalSwitchTab(tabId);
+  if (tabId === 'adminTab') {
+    renderAdminDashboard();
+  }
+};
+
+// 2. CHARGEMENT GLOBAL DES DONNÉES DU PANNEAU ADMIN
+async function renderAdminDashboard() {
+  await Promise.all([
+    renderAdminPlayers(),
+    renderAdminMatches(),
+    renderAdminChat()
+  ]);
+}
+
+// 3. GESTION DES JOUEURS (AFFICHAGE ET SUPPRESSION)
+async function renderAdminPlayers() {
+  const container = document.getElementById('adminPlayersList');
+  if (!container) return;
+
+  const { data: players, error } = await _supabase.from('players').select('*');
+  if (error || !players) {
+    container.innerHTML = `<p style="color: #ef4444;">Erreur de chargement des joueurs.</p>`;
+    return;
+  }
+
+  if (players.length === 0) {
+    container.innerHTML = `<p style="color: var(--text-muted);">Aucun joueur inscrit.</p>`;
+    return;
+  }
+
+  container.innerHTML = players.map(p => `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
+      <span><strong>${p.name || 'Joueur'}</strong> (${p.email || 'Pas d\'email'})</span>
+      <button onclick="deletePlayer('${p.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Supprimer</button>
+    </div>
+  `).join('');
+}
+
+async function deletePlayer(playerId) {
+  if (confirm("Voulez-vous vraiment supprimer ce joueur ?")) {
+    const { error } = await _supabase.from('players').delete().eq('id', playerId);
+    if (!error) {
+      alert("Joueur supprimé avec succès.");
+      renderAdminPlayers();
+    } else {
+      alert("Erreur lors de la suppression.");
+    }
+  }
+}
+
+// 4. MODÉRATION DES MATCHS
+async function renderAdminMatches() {
+  const container = document.getElementById('adminMatchesList');
+  if (!container) return;
+
+  const { data: matches, error } = await _supabase.from('matches').select('*').limit(10);
+  if (error || !matches || matches.length === 0) {
+    container.innerHTML = `<p style="color: var(--text-muted);">Aucun match récent enregistré.</p>`;
+    return;
+  }
+
+  container.innerHTML = matches.map(m => `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
+      <span>Match ID: ${m.id} — Score: ${m.score || 'En attente'}</span>
+      <button onclick="cancelMatch('${m.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Annuler Match</button>
+    </div>
+  `).join('');
+}
+
+async function cancelMatch(matchId) {
+  if (confirm("Annuler ce match ?")) {
+    await _supabase.from('matches').delete().eq('id', matchId);
+    renderAdminMatches();
+  }
+}
+
+// 5. MODÉRATION DES MESSAGES DU TCHAT
+async function renderAdminChat() {
+  const container = document.getElementById('adminChatList');
+  if (!container) return;
+
+  const { data: messages, error } = await _supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(5);
+  if (error || !messages || messages.length === 0) {
+    container.innerHTML = `<p style="color: var(--text-muted);">Aucun message récent.</p>`;
+    return;
+  }
+
+  container.innerHTML = messages.map(msg => `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
+      <span style="font-size: 0.9em;">${msg.text || msg.content || 'Message vide'}</span>
+      <button onclick="deleteChatMessage('${msg.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Supprimer</button>
+    </div>
+  `).join('');
+}
+
+async function deleteChatMessage(msgId) {
+  if (confirm("Supprimer ce message ?")) {
+    await _supabase.from('messages').delete().eq('id', msgId);
+    renderAdminChat();
+  }
+}
     const SUPABASE_URL = "https://nzlathoksbeghfhigfav.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bGF0aG9rc2JlZ2hmaGlnZmF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMTY2OTksImV4cCI6MjEwNTU5MjY5OX0.ULm9jKTW3NvTn-BNQjVGFwmm_LnkDqK4OeFYhp1TQ34";
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
