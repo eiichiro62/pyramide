@@ -291,7 +291,6 @@
     await loadData();
     populateUserSelect();
     
-    // Si aucun joueur n'est sélectionné, on prend le premier de la liste
     if (state.players.length > 0 && !state.currentUserId) {
         state.currentUserId = state.players[0].id;
     }
@@ -304,10 +303,14 @@ function checkAdmin() {
     const adminBtn = document.getElementById('adminTabBtn');
     if (!adminBtn) return;
 
-    // On récupère le joueur sélectionné
     const currentUser = state.players.find(p => String(p.id) === String(state.currentUserId));
 
-    // Si le rôle est 'admin', on affiche le bouton
+    if (currentUser && currentUser.role === 'admin') {
+        adminBtn.style.display = 'inline-block';
+    } else {
+        adminBtn.style.display = 'none';
+    }
+}
     if (currentUser && currentUser.role === 'admin') {
         adminBtn.style.display = 'inline-block';
     } else {
