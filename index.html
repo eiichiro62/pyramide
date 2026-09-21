@@ -287,12 +287,25 @@
       currentUserId: null
     };
 
-    async function init() {
-      await loadData();
-      populateUserSelect();
-      updateView();
-      changeCurrentUser(state.currentUserId);
+   async function init() {
+    await loadData();
+    populateUserSelect();
+    updateView();
+    changeCurrentUser(state.currentUserId);
+    checkAdmin();
+}
+
+function checkAdmin() {
+    const currentUser = state.players.find(p => p.id == state.currentUserId);
+    const adminBtn = document.getElementById('adminTabBtn');
+    if (adminBtn) {
+        if (currentUser && currentUser.role === 'admin') {
+            adminBtn.style.display = 'inline-block';
+        } else {
+            adminBtn.style.display = 'none';
+        }
     }
+}
 
     async function loadData() {
       const { data: players } = await _supabase.from('players').select('*').order('position', { ascending: true });
