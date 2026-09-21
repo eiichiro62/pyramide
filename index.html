@@ -287,11 +287,16 @@
       currentUserId: null
     };
 
-   async function init() {
+ async function init() {
     await loadData();
     populateUserSelect();
+    
+    // Si aucun joueur n'est sélectionné, on prend le premier de la liste
+    if (state.players.length > 0 && !state.currentUserId) {
+        state.currentUserId = state.players[0].id;
+    }
+
     updateView();
-    changeCurrentUser(state.currentUserId);
     checkAdmin();
 }
 
