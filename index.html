@@ -387,14 +387,13 @@ async function renderAdminPlayers() {
     return;
   }
 
-  let html = '';
-  players.forEach(p => {
+  container.innerHTML = players.map(p => {
     const isHidden = p.is_hidden || false;
     const rank = p.fft_rank || 'N.C';
     const email = p.email || 'Sans email';
     const name = p.name || 'Joueur';
 
-    html += `
+    return `
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #334155;">
         <div>
           <strong>${name}</strong> (${email}) <br>
@@ -407,9 +406,7 @@ async function renderAdminPlayers() {
         </div>
       </div>
     `;
-  });
-
-  container.innerHTML = html;
+  }).join('');
 }
 
   // Modifier le classement FFT d'un joueur par l'Admin
