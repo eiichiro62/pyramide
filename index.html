@@ -533,7 +533,27 @@ function checkAdmin() {
       const { data: matches } = await _supabase.from('matches').select('*');
       const { data: messages } = await _supabase.from('messages').select('*').order('created_at', { ascending: true });
 
-      state.players = players || [];
+      const fftOrder = [
+    "N.C", "NC", 
+    "40", "30/5", "30/4", "30/3", "30/2", "30/1", 
+    "30", "15/5", "15/4", "15/3", "15/2", "15/1", 
+    "15", "5/6", "4/6", "3/6", "2/6", "1/6", "0",
+    "-2/6", "-4/6", "-15", "N1"
+  ];
+
+  const sortedPlayers = (players || []).sort((a, b) => {
+    const rankA = fftOrder.indexOf((a.fft_rank || 'N.C').trim());
+    const rankB = fftOrder.indexOf((b.fft_rank || 'N.C').trim());
+
+    // Si classement FFT différent : le plus fort d'abord
+    if (rankA !== rankB) {
+      return (rankB === -1 ? -1 : rankB) - (rankA === -1 ? -1 : rankA);
+    }
+    // Si même classement : ordre alphabétique
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  state.players = sortedPlayers;
       state.matches = matches || [];
       state.generalChat = (messages || []).filter(m => !m.match_id);
 
