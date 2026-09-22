@@ -529,11 +529,12 @@ function checkAdmin() {
 
 
     async function loadData() {
-      const { data: players } = await _supabase.from('players').select('*').order('position', { ascending: true });
-      const { data: matches } = await _supabase.from('matches').select('*');
-      const { data: messages } = await _supabase.from('messages').select('*').order('created_at', { ascending: true });
+  const { data: players } = await _supabase.from('players').select('*');
+  const { data: matches } = await _supabase.from('matches').select('*');
+  const { data: messages } = await _supabase.from('messages').select('*');
 
-      const fftOrder = [
+  // Ordre officiel des classements FFT (du plus fort au moins fort)
+  const fftOrder = [
     "N.C", "NC", 
     "40", "30/5", "30/4", "30/3", "30/2", "30/1", 
     "30", "15/5", "15/4", "15/3", "15/2", "15/1", 
@@ -541,6 +542,30 @@ function checkAdmin() {
     "-2/6", "-4/6", "-15", "N1"
   ];
 
+  // 1. Tri par classement FFT puis par nom alphabétique
+  const sortedPlayers = (players || []).sort((a, b) => {
+    const rankA = fftOrder.indexOf((a.fft_rank || 'N.C').trim());
+    const rankB = fftOrder.indexOf((b.fft_rank || 'N.C').trim());
+
+    if (rankA !== rankB) {
+      return (rankB === -1 ? -1 : rankB) - (rankA === -1 ? -1 : rankA);
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  // 2. Réattribution automatique des positions (1, 2, 3...)
+  sortedPlayers.forEach((player, index) => {
+    player.position = index + 1;
+  });
+
+  state.players = sortedPlayers;
+  state.matches = matches || [];
+  state.generalChat = (messages || []).filter(m => !m.match_id);
+
+  if (state.players.length > 0 && !state.currentUserId) {
+    state.currentUserId = state.players[0].id;
+  }
+}
   const sortedPlayers = (players || []).sort((a, b) => {
     const rankA = fftOrder.indexOf((a.fft_rank || 'N.C').trim());
     const rankB = fftOrder.indexOf((b.fft_rank || 'N.C').trim());
