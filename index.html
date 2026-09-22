@@ -334,6 +334,24 @@
     </div>
   </div>
   <script>
+    // Fonction de génération et copie du lien d'invitation
+  async function generateInviteLink() {
+    const token = 'INV-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+    const baseUrl = window.location.origin + window.location.pathname;
+    const inviteUrl = `${baseUrl}?invite=${token}`;
+    
+    const inputEl = document.getElementById('inviteLinkOutput');
+    if (inputEl) {
+      inputEl.value = inviteUrl;
+    }
+
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      alert("✅ Lien généré et copié dans le presse-papier !\n\nLien : " + inviteUrl);
+    } catch (err) {
+      alert("✅ Lien généré : " + inviteUrl);
+    }
+  }
     // 1. CHANGER LA FONCTION switchTab POUR CHARGER L'ADMIN AU CLIC
 const originalSwitchTab = window.switchTab;
 window.switchTab = function(tabId) {
@@ -764,6 +782,25 @@ function checkAdmin() {
     }
 
     window.onload = init;
+    // VERROUILLAGE : Masque l'onglet d'inscription si le lien d'invitation est absent
+  function checkInviteAccess() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteToken = urlParams.get('invite');
+    
+    // Recherche du bouton Inscription dans la navigation
+    const registerBtn = document.querySelector('button[onclick*="registerTab"]');
+    
+    if (!inviteToken) {
+      // Pas de lien d'invitation -> on cache le bouton
+      if (registerBtn) registerBtn.style.display = 'none';
+    } else {
+      // Lien présent -> on affiche le bouton
+      if (registerBtn) registerBtn.style.display = 'inline-block';
+    }
+  }
+
+  // Lancement automatique au chargement de la page
+  window.addEventListener('DOMContentLoaded', checkInviteAccess);
   </script>
 </body>
 </html>
