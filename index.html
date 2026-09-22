@@ -390,7 +390,7 @@ async function renderAdminDashboard() {
     container.innerHTML = players.map(p => `
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #334155;">
         <div>
-          <strong>${p.name || 'Joueur'}</strong> (${p.email || 'Pas d\'email'}) <br>
+          <strong>${p.name || 'Joueur'}</strong> (${p.email || 'Sans email'}) <br>
           <span style="font-size: 0.85em; color: var(--text-muted);">FFT: ${p.fft_rank || 'N.C'} | Pyramide: ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}</span>
         </div>
         <div style="display: flex; gap: 5px;">
