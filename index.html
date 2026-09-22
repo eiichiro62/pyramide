@@ -273,6 +273,7 @@
               <option value="15/1">15/1</option>
             </select>
           </div>
+          
           <button type="submit" class="btn">S'inscrire</button>
         </form>
       </div>
@@ -370,30 +371,56 @@ async function renderAdminDashboard() {
   ]);
 }
 
-// 3. GESTION DES JOUEURS (AFFICHAGE ET SUPPRESSION)
-async function renderAdminPlayers() {
-  const container = document.getElementById('adminPlayersList');
-  if (!container) return;
+// 3. GESTION DES JOUEURS (AFFICHAGE, CLASSEMENT FFT & MASQUAGE)
+  async function renderAdminPlayers() {
+    const container = document.getElementById('adminPlayersList');
+    if (!container) return;
 
-  const { data: players, error } = await _supabase.from('players').select('*');
-  if (error || !players) {
-    container.innerHTML = `<p style="color: #ef4444;">Erreur de chargement des joueurs.</p>`;
-    return;
+    const { data: players, error } = await _supabase.from('players').select('*');
+    if (error || !players) {
+      container.innerHTML = `<p style="color: #ef4444;">Erreur de chargement des joueurs.</p>`;
+      return;
+    }
+
+    if (players.length === 0) {
+      container.innerHTML = `<p style="color: var(--text-muted);">Aucun joueur inscrit.</p>`;
+      return;
+    }
+
+    container.innerHTML = players.map(p => `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #334155;">
+        <div>
+          <strong>${p.name || 'Joueur'}</strong> (${p.email || 'Pas d\'email'}) <br>
+          <span style="font-size: 0.85em; color: var(--text-muted);">FFT: ${p.fft_rank || 'N.C'} | Pyramide: ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}</span>
+        </div>
+        <div style="display: flex; gap: 5px;">
+          <button onclick="updateFFTRank('${p.id}', '${p.fft_rank || ''}')" style="background: #3b82f6; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer;">FFT</button>
+          <button onclick="toggleVisibility('${p.id}', ${p.is_hidden || false})" style="background: #eab308; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer;">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
+          <button onclick="deletePlayer('${p.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer;">Supprimer</button>
+        </div>
+      </div>
+    `).join('');
   }
 
-  if (players.length === 0) {
-    container.innerHTML = `<p style="color: var(--text-muted);">Aucun joueur inscrit.</p>`;
-    return;
+  // Modifier le classement FFT d'un joueur par l'Admin
+  async function updateFFTRank(playerId, currentRank) {
+    const newRank = prompt("Nouveau classement FFT du joueur (ex: 30/1, 15/2...) :", currentRank);
+    if (newRank !== null) {
+      const { error } = await _supabase.from('players').update({ fft_rank: newRank }).eq('id', playerId);
+      if (!error) {
+        alert("Classement mis à jour !");
+        renderAdminPlayers();
+      }
+    }
   }
 
-  container.innerHTML = players.map(p => `
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
-      <span><strong>${p.name || 'Joueur'}</strong> (${p.email || 'Pas d\'email'})</span>
-      <button onclick="deletePlayer('${p.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Supprimer</button>
-    </div>
-  `).join('');
-}
-
+  // Masquer ou afficher un joueur sur la pyramide
+  async function toggleVisibility(playerId, currentHiddenStatus) {
+    const { error } = await _supabase.from('players').update({ is_hidden: !currentHiddenStatus }).eq('id', playerId);
+    if (!error) {
+      renderAdminPlayers();
+    }
+  }
 async function deletePlayer(playerId) {
   if (confirm("Voulez-vous vraiment supprimer ce joueur ?")) {
     const { error } = await _supabase.from('players').delete().eq('id', playerId);
