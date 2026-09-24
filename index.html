@@ -354,7 +354,14 @@
       alert("✅ Lien généré : " + inviteUrl);
     }
   }
-
+// 2. CHARGEMENT GLOBAL DES DONNÉES DU PANNEAU ADMIN
+async function renderAdminDashboard() {
+  await Promise.all([
+    renderAdminPlayers(),
+    renderAdminMatches(),
+    renderAdminChat()
+  ]);
+}
 
 
 // 3. GESTION DES JOUEURS (AFFICHAGE, CLASSEMENT FFT & MASQUAGE)
