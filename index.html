@@ -302,6 +302,7 @@
       <label>Date de fin de session :</label>
       <input type="date" id="sessionEndDateInput" style="padding: 8px; border-radius: 5px; border: 1px solid #334155; background: #0f172a; color: #fff;">
       <button onclick="updateSessionDate()" class="btn">Mettre à jour la date</button>
+      <button onclick="rebuildStartPositions()" class="btn">🔄 Recalculer le départ selon le classement FFT</button>
     </div>
     <div style="margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px;">
       <button onclick="resetPyramidSeason()" class="btn" style="background-color: #ef4444;">⚠️ Clôturer la session et réinitialiser la pyramide</button>
@@ -353,23 +354,10 @@
       alert("✅ Lien généré : " + inviteUrl);
     }
   }
-    // 1. CHANGER LA FONCTION switchTab POUR CHARGER L'ADMIN AU CLIC
-const originalSwitchTab = window.switchTab;
-window.switchTab = function(tabId) {
-  if (typeof originalSwitchTab === 'function') originalSwitchTab(tabId);
-  if (tabId === 'adminTab') {
-    renderAdminDashboard();
-  }
+
 };
 
-// 2. CHARGEMENT GLOBAL DES DONNÉES DU PANNEAU ADMIN
-async function renderAdminDashboard() {
-  await Promise.all([
-    renderAdminPlayers(),
-    renderAdminMatches(),
-    renderAdminChat()
-  ]);
-}
+
 
 // 3. GESTION DES JOUEURS (AFFICHAGE, CLASSEMENT FFT & MASQUAGE)
 async function renderAdminPlayers() {
@@ -442,29 +430,42 @@ async function deletePlayer(playerId) {
 
 // 4. MODÉRATION DES MATCHS
 async function renderAdminMatches() {
-  const container = document.getElementById('adminMatchesList');
-  if (!container) return;
-
-  const { data: matches, error } = await _supabase.from('matches').select('*').limit(10);
-  if (error || !matches || matches.length === 0) {
-    container.innerHTML = `<p style="color: var(--text-muted);">Aucun match récent enregistré.</p>`;
-    return;
-  }
-
-  container.innerHTML = matches.map(m => `
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
-      <span>Match ID: ${m.id} — Score: ${m.score || 'En attente'}</span>
-      <button onclick="cancelMatch('${m.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Annuler Match</button>
-    </div>
-  `).join('');
+  const box = document.getElementById('adminMatchesList');
+  if (!box) return;
+  await loadData();
+  const name = id => (state.rawPlayers.find(p => String(p.id) === String(id)) || {}).name || '?';
+  const list = [...state.matches].reverse();
+  if (!list.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match.</p>'; return; }
+  box.innerHTML = list.map(m => `
+    <div style="padding:8px;border-bottom:1px solid #334155;text-align:left">
+      <b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b>
+      — ${m.status}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + m.score : ''}
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn" onclick="adminSetWinner('${m.id}','${m.challenger_id}')">Gagnant : ${name(m.challenger_id)}</button>
+        <button class="btn" onclick="adminSetWinner('${m.id}','${m.defender_id}')">Gagnant : ${name(m.defender_id)}</button>
+        <button class="btn" style="background:#eab308" onclick="adminReopen('${m.id}')">Rouvrir</button>
+        <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button>
+      </div>
+    </div>`).join('');
 }
 
-async function cancelMatch(matchId) {
-  if (confirm("Annuler ce match ?")) {
-    await _supabase.from('matches').delete().eq('id', matchId);
-    renderAdminMatches();
-  }
+async function adminSetWinner(id, winnerId) {
+  const m = state.matches.find(x => String(x.id) === String(id));
+  await _supabase.from('matches').update({
+    status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString()
+  }).eq('id', id);
+  afterAdminChange();
 }
+async function adminReopen(id) {
+  await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, played_at: null }).eq('id', id);
+  afterAdminChange();
+}
+async function adminDeleteMatch(id) {
+  if (!confirm('Supprimer définitivement ce match ?')) return;
+  await _supabase.from('matches').delete().eq('id', id);
+  afterAdminChange();
+}
+async function afterAdminChange() { await renderAdminMatches(); updateView(); }
 
 // 5. MODÉRATION DES MESSAGES DU TCHAT
 async function renderAdminChat() {
@@ -528,94 +529,83 @@ function checkAdmin() {
 }
 
 
-    async function loadData() {
+     const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
+
+function fftValue(r) {
+  const s = (r || 'NC').toString().trim().toUpperCase().replace('N.C', 'NC');
+  const i = FFT_ORDER.indexOf(s);
+  return i === -1 ? 0 : i;
+}
+function sortByFFT(list) {
+  return [...list].sort((a, b) =>
+    fftValue(b.fft_rank) - fftValue(a.fft_rank) || (a.name || '').localeCompare(b.name || ''));
+}
+
+function computePyramid(players, matches) {
+  const visible = players.filter(p => !p.is_hidden);
+  const withPos = visible.filter(p => p.start_position != null)
+                         .sort((a, b) => a.start_position - b.start_position);
+  const noPos = sortByFFT(visible.filter(p => p.start_position == null));
+  const order = [...withPos, ...noPos];
+
+  const done = matches
+    .filter(m => m.status === 'done' || m.status === 'forfeit')
+    .sort((a, b) => new Date(a.played_at || a.created_at) - new Date(b.played_at || b.created_at));
+
+  const stats = {};
+  order.forEach(p => stats[p.id] = { played: 0, wins: 0, refusals: 0 });
+
+  for (const m of done) {
+    if (m.status === 'done') {
+      [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
+    }
+    if (m.status === 'forfeit' && stats[m.defender_id]) stats[m.defender_id].refusals++;
+    if (stats[m.winner_id]) stats[m.winner_id].wins++;
+
+    if (m.winner_id !== m.challenger_id) continue;        // le défenseur gagne : rien ne bouge
+    const c = order.findIndex(p => p.id === m.challenger_id);
+    const d = order.findIndex(p => p.id === m.defender_id);
+    if (c === -1 || d === -1 || d > c) continue;
+    const [p] = order.splice(c, 1);
+    order.splice(d, 0, p);                                // effet glissant
+  }
+
+  const busy = new Set();
+  matches.filter(m => m.status === 'pending' || m.status === 'accepted')
+         .forEach(m => { busy.add(m.challenger_id); busy.add(m.defender_id); });
+
+  return order.map((p, i) => ({
+    ...p,
+    position: i + 1,
+    is_busy: busy.has(p.id),
+    is_disqualified: p.is_disqualified || stats[p.id].refusals >= 5,
+    matches_played: stats[p.id].played,
+    wins: stats[p.id].wins,
+    refusals: stats[p.id].refusals
+  }));
+}
+
+async function loadData() {
   const { data: players } = await _supabase.from('players').select('*');
   const { data: matches } = await _supabase.from('matches').select('*');
   const { data: messages } = await _supabase.from('messages').select('*');
 
-  // Ordre officiel des classements FFT (du plus fort index au moins fort)
-  const fftOrder = [
-    "NC", "N.C", "40", "30/5", "30/4", "30/3", "30/2", "30/1",
-    "30", "15/5", "15/4", "15/3", "15/2", "15/1", "15",
-    "5/6", "4/6", "3/6", "2/6", "1/6", "0", "-2/6", "-4/6", "-15", "N1"
-  ];
-
-  function getRankValue(rankStr) {
-    if (!rankStr) return -1;
-    const cleanRank = rankStr.toString().trim().toUpperCase();
-    const idx = fftOrder.findIndex(r => r.toUpperCase() === cleanRank);
-    return idx;
-  }
-
-  // 1. Tri par classement FFT descendant, puis par Nom A-Z
-  const sortedPlayers = (players || []).sort((a, b) => {
-    const valA = getRankValue(a.fft_rank);
-    const valB = getRankValue(b.fft_rank);
-
-    if (valA !== valB) {
-      return valB - valA; // Le plus fort classement en premier
-    }
-    return (a.name || '').localeCompare(b.name || '');
-  });
-
-  // 2. Mettre à jour la position dynamique
-  sortedPlayers.forEach((p, index) => {
-    p.position = index + 1;
-  });
-
-  state.players = sortedPlayers;
+  state.rawPlayers = players || [];
   state.matches = matches || [];
   state.generalChat = (messages || []).filter(m => !m.match_id);
+  state.players = computePyramid(state.rawPlayers, state.matches);
 
-  if (state.players.length > 0 && !state.currentUserId) {
-    state.currentUserId = state.players[0].id;
-  }
+  if (state.players.length && !state.currentUserId) state.currentUserId = state.players[0].id;
 }
 
-  // 1. Tri par classement FFT puis par nom alphabétique
-  const sortedPlayers = (players || []).sort((a, b) => {
-    const rankA = fftOrder.indexOf((a.fft_rank || 'N.C').trim());
-    const rankB = fftOrder.indexOf((b.fft_rank || 'N.C').trim());
-
-    if (rankA !== rankB) {
-      return (rankB === -1 ? -1 : rankB) - (rankA === -1 ? -1 : rankA);
-    }
-    return (a.name || '').localeCompare(b.name || '');
-  });
-
-  // 2. Réattribution automatique des positions (1, 2, 3...)
-  sortedPlayers.forEach((player, index) => {
-    player.position = index + 1;
-  });
-
-  state.players = sortedPlayers;
-  state.matches = matches || [];
-  state.generalChat = (messages || []).filter(m => !m.match_id);
-
-  if (state.players.length > 0 && !state.currentUserId) {
-    state.currentUserId = state.players[0].id;
-  }
+async function rebuildStartPositions(ask = true) {
+  if (ask && !confirm("Remettre la pyramide de départ selon le classement FFT ?")) return;
+  const sorted = sortByFFT(state.rawPlayers.filter(p => !p.is_hidden));
+  await Promise.all(sorted.map((p, i) =>
+    _supabase.from('players').update({ start_position: i + 1 }).eq('id', p.id)));
+  await loadData();
+  updateView();
 }
-  const sortedPlayers = (players || []).sort((a, b) => {
-    const rankA = fftOrder.indexOf((a.fft_rank || 'N.C').trim());
-    const rankB = fftOrder.indexOf((b.fft_rank || 'N.C').trim());
-
-    // Si classement FFT différent : le plus fort d'abord
-    if (rankA !== rankB) {
-      return (rankB === -1 ? -1 : rankB) - (rankA === -1 ? -1 : rankA);
-    }
-    // Si même classement : ordre alphabétique
-    return (a.name || '').localeCompare(b.name || '');
-  });
-
-  state.players = sortedPlayers;
-      state.matches = matches || [];
-      state.generalChat = (messages || []).filter(m => !m.match_id);
-
-      if (state.players.length > 0 && !state.currentUserId) {
-        state.currentUserId = state.players[0].id;
-      }
-    }
 
     function populateUserSelect() {
       const select = document.getElementById('currentUserSelect');
@@ -726,7 +716,6 @@ function checkAdmin() {
       const p1 = state.players[challengerIdx];
       const p2 = state.players[defenderIdx];
 
-      await _supabase.from('players').update({ is_busy: true }).in('id', [p1.id, p2.id]);
 
       const limitDate = new Date();
       limitDate.setDate(limitDate.getDate() + 7);
@@ -775,14 +764,15 @@ function checkAdmin() {
 
     function renderMatches() {
       const container = document.getElementById('matchesList');
-      if (state.matches.length === 0) {
+      const active = state.matches.filter(m => m.status === 'pending' || m.status === 'accepted');
+      if (active.length === 0) {
         container.innerHTML = "<div class='action-panel'><p>Aucun défi en cours.</p></div>";
         return;
       }
 
       const me = state.players.find(p => p.id === state.currentUserId);
 
-      container.innerHTML = state.matches.map(m => {
+      container.innerHTML = active.map(m => {
         const p1 = state.players.find(p => p.id === m.challenger_id);
         const p2 = state.players.find(p => p.id === m.defender_id);
 
@@ -824,28 +814,21 @@ function checkAdmin() {
       updateView();
     }
 
-    async function refuseMatch(matchId) {
-      const match = state.matches.find(m => m.id === matchId);
-      const p1 = state.players.find(p => p.id === match.challenger_id);
-      const p2 = state.players.find(p => p.id === match.defender_id);
+   async function refuseMatch(matchId) {
+  const m = state.matches.find(x => String(x.id) === String(matchId));
+  await _supabase.from('matches').update({
+    status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString()
+  }).eq('id', matchId);
+  await loadData(); updateView();
+}
 
-      await _supabase.from('players').update({ is_busy: false, refusals: p2.refusals + 1 }).eq('id', p2.id);
-      await _supabase.from('players').update({ is_busy: false }).eq('id', p1.id);
-      await _supabase.from('matches').delete().eq('id', matchId);
-
-      await loadData();
-      updateView();
-      alert(`${p2.name} a refusé le défi.`);
-    }
-
-    async function resolveMatch(matchId, winnerId) {
-      const match = state.matches.find(m => m.id === matchId);
-      await _supabase.from('players').update({ is_busy: false }).in('id', [match.challenger_id, match.defender_id]);
-      await _supabase.from('matches').delete().eq('id', matchId);
-
-      await loadData();
-      updateView();
-    }
+   async function resolveMatch(matchId, winnerId) {
+  const score = prompt("Score (ex : 6-4 3-6 10-7) :") || '';
+  await _supabase.from('matches').update({
+    status: 'done', winner_id: winnerId, score, played_at: new Date().toISOString()
+  }).eq('id', matchId);
+  await loadData(); updateView();
+}
 
     function renderStats() {
       const tbody = document.getElementById('statsTableBody');
@@ -874,10 +857,25 @@ function checkAdmin() {
       const gender = document.getElementById('playerGender').value;
       const fftRank = document.getElementById('fftRank').value;
 
-      await _supabase.from('players').insert([{ name, gender, fft_rank: fftRank }]);
+      const { data: created, error } = await _supabase.from('players')
+        .insert([{ name, gender, fft_rank: fftRank }]).select().single();
+      if (error) { alert("Erreur d'inscription : " + error.message); return; }
+
+      await loadData();
+
+      // Le championnat a-t-il déjà commencé ? (au moins un match terminé)
+      const started = state.matches.some(m => m.status === 'done' || m.status === 'forfeit');
+      if (!started) {
+        // Avant le 1er résultat : tout le monde est replacé selon le classement FFT
+        await rebuildStartPositions(false);
+      } else {
+        // Ensuite : le nouveau joueur arrive en bas de la pyramide
+        const max = Math.max(0, ...state.rawPlayers.map(p => p.start_position || 0));
+        await _supabase.from('players').update({ start_position: max + 1 }).eq('id', created.id);
+        await loadData();
+      }
 
       document.getElementById('playerName').value = '';
-      await loadData();
       populateUserSelect();
       updateView();
       switchTab('pyramidTab');
@@ -888,6 +886,7 @@ function checkAdmin() {
       document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       if (event) event.target.classList.add('active');
+      if (id === 'adminTab') renderAdminDashboard();
     }
 
     window.onload = init;
