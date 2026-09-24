@@ -1,592 +1,224 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Championnat Pyramide - Tennis</title>
-  <!-- Icône pour l'onglet du navigateur -->
-  <link rel="icon" type="image/png" href="logo.png">
-
-  <!-- Icône pour l'écran d'accueil mobile (PWA) -->
-  <link rel="apple-touch-icon" href="logo.png">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    :root {
-      --bg-color: #0f172a;
-      --card-bg: #1e293b;
-      --accent-color: #0284c7;
-      --accent-hover: #0369a1;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --busy-color: #ef4444;
-      --target-color: #eab308;
-      --active-color: #22c55e;
-      --pending-color: #f97316;
-    }
-
-    .tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block !important;
-}
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    body { background-color: var(--bg-color); color: var(--text-main); padding: 20px; text-align: center; }
-
-    .container { max-width: 1200px; margin: 0 auto; }
-
-    .user-bar {
-      background: #1e293b;
-      border: 1px solid #334155;
-      padding: 10px 20px;
-      border-radius: 10px;
-      margin-bottom: 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .user-selector { display: flex; align-items: center; gap: 10px; }
-    .user-selector select { padding: 6px 12px; border-radius: 6px; background: #0f172a; color: white; border: 1px solid #334155; font-weight: bold; }
-
-    h1 { margin-bottom: 5px; color: #38bdf8; }
-    p.subtitle { color: var(--text-muted); margin-bottom: 20px; }
-
-    .nav-tabs { display: flex; justify-content: center; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; }
-    .tab-btn { background: var(--card-bg); border: 1px solid #334155; color: var(--text-main); padding: 10px 20px; border-radius: 8px; cursor: pointer; transition: 0.2s; font-weight: bold; }
-    .tab-btn.active, .tab-btn:hover { background: var(--accent-color); border-color: var(--accent-color); }
-
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-
-    .rules-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 12px;
-      margin-bottom: 25px;
-      text-align: left;
-    }
-    .rule-card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-left: 4px solid var(--accent-color);
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-    }
-    .rule-card h4 { color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
-
-    .pyramid-container { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 20px 0; overflow-x: auto; padding: 10px; }
-    .pyramid-row { display: flex; justify-content: center; gap: 10px; }
-
-    .player-card {
-      background: var(--card-bg);
-      border: 2px solid #334155;
-      border-radius: 8px;
-      padding: 8px;
-      width: 130px;
-      min-height: 75px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      position: relative;
-    }
-
-    .player-card:hover { transform: translateY(-3px); border-color: var(--accent-color); }
-    .player-card .rank { position: absolute; top: 4px; left: 6px; font-size: 0.75rem; color: var(--text-muted); font-weight: bold; }
-    .player-card .gender-icon { position: absolute; top: 4px; right: 6px; font-size: 0.75rem; }
-    .player-card .name { font-weight: bold; font-size: 0.9rem; margin-top: 5px; word-break: break-word; }
-    .player-card .badge { font-size: 0.7rem; background: #334155; padding: 2px 6px; border-radius: 4px; margin-top: 4px; }
-
-    .player-card.is-me { border-color: #38bdf8; background: #0c4a6e; }
-    .player-card.eligible { border-color: var(--target-color); background: #2d2a1e; animation: pulse 1.5s infinite; }
-    .player-card.busy { border-color: var(--busy-color); opacity: 0.8; }
-    .player-card.busy::after { content: 'EN MATCH'; position: absolute; bottom: 2px; font-size: 0.6rem; color: var(--busy-color); font-weight: bold; }
-    .player-card.disqualified { border-color: #64748b; background: #0f172a; opacity: 0.4; cursor: not-allowed; }
-    .player-card.disqualified::after { content: 'DISQUALIFIÉ'; position: absolute; bottom: 2px; font-size: 0.6rem; color: #ef4444; font-weight: bold; }
-
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.4); }
-      70% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
-    }
-
-    .honors-banner {
-      background: linear-gradient(135deg, #1e293b, #0f172a);
-      border: 1px solid #eab308;
-      border-radius: 12px;
-      padding: 15px;
-      margin-top: 25px;
-      display: flex;
-      justify-content: space-around;
-      flex-wrap: wrap;
-      gap: 15px;
-    }
-    .honor-item { font-size: 0.85rem; text-align: center; }
-    .honor-item span { display: block; font-size: 1.2rem; margin-top: 4px; font-weight: bold; color: #eab308; }
-
-    .chat-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
-    .chat-box { background: #1e293b; border-radius: 8px; padding: 12px; height: 200px; overflow-y: auto; margin: 10px 0; border: 1px solid #334155; }
-    .chat-msg { font-size: 0.85rem; margin-bottom: 6px; text-align: left; }
-    .chat-msg .sender { font-weight: bold; color: #38bdf8; }
-
-    .action-panel { background: var(--card-bg); border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155; text-align: left; }
-    .btn { background: var(--accent-color); color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-    .btn:hover { background: var(--accent-hover); }
-    .btn-danger { background: var(--busy-color); }
-    .btn-success { background: var(--active-color); }
-
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; background: var(--card-bg); border-radius: 8px; overflow: hidden; }
-    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; }
-    th { background: #0f172a; color: #38bdf8; }
-
-    .form-group { margin-bottom: 15px; text-align: left; }
-    .form-group label { display: block; margin-bottom: 5px; color: var(--text-muted); }
-    .form-group input, .form-group select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Championnat Pyramide - Tennis</title>
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg-color:#0f172a;--card-bg:#1e293b;--accent-color:#0284c7;--accent-hover:#0369a1;--text-main:#f8fafc;--text-muted:#94a3b8;--busy-color:#ef4444;--target-color:#eab308;--active-color:#22c55e;--pending-color:#f97316;--bd:#334155}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif}
+body{background:var(--bg-color);color:var(--text-main);padding:20px;text-align:center}
+.container{max-width:1200px;margin:0 auto}
+.user-bar{background:var(--card-bg);border:1px solid var(--bd);padding:10px 20px;border-radius:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+h1{margin-bottom:5px;color:#38bdf8}
+.subtitle{color:var(--text-muted);margin-bottom:20px}
+.nav-tabs{display:flex;justify-content:center;gap:10px;margin-bottom:25px;flex-wrap:wrap}
+.tab-btn{background:var(--card-bg);border:1px solid var(--bd);color:var(--text-main);padding:10px 20px;border-radius:8px;cursor:pointer;transition:.2s;font-weight:bold}
+.tab-btn.active,.tab-btn:hover{background:var(--accent-color);border-color:var(--accent-color)}
+.tab-content{display:none}.tab-content.active{display:block}
+.rules-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:25px;text-align:left}
+.rule-card{background:var(--card-bg);border:1px solid var(--bd);border-left:4px solid var(--accent-color);padding:12px;border-radius:8px;font-size:.85rem}
+.rule-card h4{color:#38bdf8;margin-bottom:4px;font-size:.9rem}
+.pyramid-container{display:flex;flex-direction:column;align-items:center;gap:12px;margin:20px 0;overflow-x:auto;padding:10px}
+.pyramid-row{display:flex;justify-content:center;gap:10px}
+.player-card{background:var(--card-bg);border:2px solid var(--bd);border-radius:8px;padding:8px;width:130px;min-height:75px;display:flex;flex-direction:column;justify-content:center;align-items:center;cursor:pointer;transition:.2s;position:relative}
+.player-card:hover{transform:translateY(-3px);border-color:var(--accent-color)}
+.player-card .rank{position:absolute;top:4px;left:6px;font-size:.75rem;color:var(--text-muted);font-weight:bold}
+.player-card .gender-icon{position:absolute;top:4px;right:6px;font-size:.75rem}
+.player-card .name{font-weight:bold;font-size:.9rem;margin-top:5px;word-break:break-word}
+.player-card .badge{font-size:.7rem;background:var(--bd);padding:2px 6px;border-radius:4px;margin-top:4px}
+.player-card.is-me{border-color:#38bdf8;background:#0c4a6e}
+.player-card.eligible{border-color:var(--target-color);background:#2d2a1e;animation:pulse 1.5s infinite}
+.player-card.busy{border-color:var(--busy-color);opacity:.8}
+.player-card.busy::after{content:'EN MATCH';position:absolute;bottom:2px;font-size:.6rem;color:var(--busy-color);font-weight:bold}
+.player-card.disqualified{border-color:#64748b;background:var(--bg-color);opacity:.4;cursor:not-allowed}
+.player-card.disqualified::after{content:'DISQUALIFIÉ';position:absolute;bottom:2px;font-size:.6rem;color:var(--busy-color);font-weight:bold}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(234,179,8,.4)}70%{box-shadow:0 0 0 10px rgba(234,179,8,0)}100%{box-shadow:0 0 0 0 rgba(234,179,8,0)}}
+.honors-banner{background:linear-gradient(135deg,var(--card-bg),var(--bg-color));border:1px solid var(--target-color);border-radius:12px;padding:15px;margin-top:25px;display:flex;justify-content:space-around;flex-wrap:wrap;gap:15px}
+.honor-item{font-size:.85rem;text-align:center}
+.honor-item span{display:block;font-size:1.2rem;margin-top:4px;font-weight:bold;color:var(--target-color)}
+.chat-box{background:var(--card-bg);border-radius:8px;padding:12px;height:200px;overflow-y:auto;margin:10px 0;border:1px solid var(--bd)}
+.chat-msg{font-size:.85rem;margin-bottom:6px;text-align:left}
+.chat-msg .sender{font-weight:bold;color:#38bdf8}
+.action-panel{background:var(--card-bg);border-radius:12px;padding:20px;margin-top:20px;border:1px solid var(--bd);text-align:left}
+.btn{background:var(--accent-color);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:bold;transition:.2s}
+.btn:hover{background:var(--accent-hover)}
+.btn-danger{background:var(--busy-color)}.btn-success{background:var(--active-color)}.btn-warn{background:var(--target-color)}
+table{width:100%;border-collapse:collapse;margin-top:15px;background:var(--card-bg);border-radius:8px;overflow:hidden}
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--bd)}
+th{background:var(--bg-color);color:#38bdf8}
+.form-group{margin-bottom:15px;text-align:left}
+.form-group label{display:block;margin-bottom:5px;color:var(--text-muted)}
+input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd);background:var(--bg-color);color:#fff}
+.admin-box{background:var(--card-bg);padding:20px;border-radius:10px;border:1px solid var(--bd);margin-top:15px;text-align:left}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+#authScreen{position:fixed;inset:0;background:var(--bg-color);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;z-index:10}
+</style>
 </head>
 <body>
 
-  <div class="container">
-    
-    <div class="user-bar">
-      <div class="user-selector">
-        <label for="currentUserSelect">👤 Joueur connecté :</label>
-        <select id="currentUserSelect" onchange="changeCurrentUser(this.value)"></select>
-      </div>
-      <div id="userStatusAlert" style="font-size: 0.85rem; color: #38bdf8; font-weight: bold;">Connecté à la base Supabase</div>
+<div id="authScreen">
+  <div class="action-panel" style="width:100%;max-width:420px">
+    <h2 style="color:#38bdf8">🎾 Pyramide du Club</h2>
+    <form id="loginForm" style="margin-top:15px">
+      <div class="form-group"><label>Email</label><input type="email" id="loginEmail" required></div>
+      <div class="form-group"><label>Mot de passe</label><input type="password" id="loginPassword" required></div>
+      <button class="btn" type="submit" style="width:100%">Se connecter</button>
+    </form>
+    <div id="signupBox" style="display:none;margin-top:25px;border-top:1px solid var(--bd);padding-top:20px">
+      <h3>Première visite ? Créer mon compte</h3>
+      <form id="signupForm" style="margin-top:15px">
+        <div class="form-group"><label>Nom / Prénom</label><input type="text" id="playerName" required placeholder="Ex: Roger Federer"></div>
+        <div class="form-group"><label>Sexe</label>
+          <select id="playerGender"><option value="H">Homme 👨</option><option value="F">Femme 👩 (-2 classements d'équité)</option></select></div>
+        <div class="form-group"><label>Classement FFT Officiel</label><select id="fftRank"></select></div>
+        <div class="form-group"><label>Email</label><input type="email" id="signupEmail" required></div>
+        <div class="form-group"><label>Mot de passe (6 caractères minimum)</label><input type="password" id="signupPassword" minlength="6" required></div>
+        <button class="btn" type="submit" style="width:100%">Créer mon compte</button>
+      </form>
     </div>
-
-    <h1>🎾 Pyramide du Club de Tennis</h1>
-    <p class="subtitle">Fin du championnat le <b>30 juin</b></p>
-
-    <div class="nav-tabs">
-      <button class="tab-btn active" onclick="switchTab('pyramidTab', event)">⛰️ La Pyramide</button>
-      <button class="tab-btn" onclick="switchTab('chatTab', event)">💬 Chat Général</button>
-      <button class="tab-btn" onclick="switchTab('matchesTab', event)">⚔️ Défis & Chat Privé</button>
-      <button class="tab-btn" onclick="switchTab('statsTab', event)">📊 Classements</button>
-      <button class="tab-btn" onclick="switchTab('registerTab', event)">➕ Inscription</button>
-      <button id="adminTabBtn" class="tab-btn" onclick="switchTab('adminTab', event)" style="display:none;">⚙️ Admin</button>
-    </div>
-
-    <div id="pyramidTab" class="tab-content active">
-      <div class="rules-grid">
-        <div class="rule-card">
-          <h4>🎯 Défis éligibles</h4>
-          Vous pouvez défier tous les joueurs <b>éligibles</b> (en surbrillance jaune).
-        </div>
-        <div class="rule-card">
-          <h4>⏳ Délais & Réservation</h4>
-          <b>1 semaine</b> pour jouer le match. Le challenger réserve le terrain et apporte les balles.
-        </div>
-        <div class="rule-card">
-          <h4>⚠️ Refus & Disqualification</h4>
-          Un refus fait <b>perdre votre place</b>. <b>5 refus = disqualification</b>.
-        </div>
-        <div class="rule-card">
-          <h4>🎾 Matchs Homologués</h4>
-          Format au choix. Tous les matchs 4ème série sont <b>homologués FFT</b>.
-        </div>
-      </div>
-
-      <div id="pyramidDisplay" class="pyramid-container"></div>
-
-      <div class="honors-banner">
-        <div class="honor-item">🥇 Leader actuel <span><small id="honorFirst">-</small></span></div>
-        <div class="honor-item">🚀 Meilleure Progression <span><small id="honorProgression">-</small></span></div>
-        <div class="honor-item">🔥 Plus grand nombre de matchs <span><small id="honorMostMatches">-</small></span></div>
-      </div>
-    </div>
-
-    <div id="chatTab" class="tab-content">
-      <div class="action-panel" style="max-width: 700px; margin: 0 auto;">
-        <h2>💬 Chat Général du Club</h2>
-        <div class="chat-box" id="generalChatBox"></div>
-        <div style="display:flex; gap:10px;">
-          <input type="text" id="generalChatInput" placeholder="Écrire un message au club..." style="flex:1; padding:10px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:white;">
-          <button class="btn" onclick="sendGeneralMessage()">Envoyer</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="matchesTab" class="tab-content">
-      <h2>Défis en cours & Chat Privé de Match</h2>
-      <div id="matchesList" style="margin-top: 15px;"></div>
-    </div>
-
-    <div id="statsTab" class="tab-content">
-      <h2>Classement Général & Historique</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Pos.</th>
-            <th>Joueur</th>
-            <th>Sexe</th>
-            <th>Classement FFT</th>
-            <th>Matchs</th>
-            <th>Victoires</th>
-            <th>Refus</th>
-            <th>Statut</th>
-          </tr>
-        </thead>
-        <tbody id="statsTableBody"></tbody>
-      </table>
-    </div>
-
-    <div id="registerTab" class="tab-content">
-      <div class="action-panel" style="max-width: 500px; margin: 0 auto;">
-        <h2>Inscrire un nouveau joueur</h2>
-        <form id="registerForm" style="margin-top: 15px;">
-          <div class="form-group">
-            <label for="playerName">Nom / Prénom</label>
-            <input type="text" id="playerName" required placeholder="Ex: Roger Federer">
-          </div>
-
-          <div class="form-group">
-            <label for="playerGender">Sexe</label>
-            <select id="playerGender">
-              <option value="H">Homme 👨</option>
-              <option value="F">Femme 👩 (-2 classements d'équité)</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="fftRank">Classement FFT Officiel</label>
-            <select id="fftRank">
-              <option value="NC">NC</option>
-              <option value="40">40</option>
-              <option value="30/5">30/5</option>
-              <option value="30/4">30/4</option>
-              <option value="30/3">30/3</option>
-              <option value="30/2">30/2</option>
-              <option value="30/1">30/1</option>
-              <option value="30">30</option>
-              <option value="15/5">15/5</option>
-              <option value="15/4">15/4</option>
-              <option value="15/3">15/3</option>
-              <option value="15/2">15/2</option>
-              <option value="15/1">15/1</option>
-            </select>
-          </div>
-          
-          <button type="submit" class="btn">S'inscrire</button>
-        </form>
-      </div>
-    
+    <p id="authMsg" style="margin-top:12px;color:var(--pending-color);font-size:.9rem"></p>
+  </div>
 </div>
+
+<div class="container" id="appRoot" style="display:none">
+  <div class="user-bar">
+    <b id="whoami" style="color:#38bdf8"></b>
+    <button class="btn btn-danger" onclick="logout()">Déconnexion</button>
   </div>
 
+  <h1>🎾 Pyramide du Club de Tennis</h1>
+  <p class="subtitle">Fin du championnat le <b>30 juin</b></p>
+
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('pyramidTab')">⛰️ La Pyramide</button>
+    <button class="tab-btn" onclick="switchTab('chatTab')">💬 Chat Général</button>
+    <button class="tab-btn" onclick="switchTab('matchesTab')">⚔️ Défis</button>
+    <button class="tab-btn" onclick="switchTab('statsTab')">📊 Classements</button>
+    <button id="adminTabBtn" class="tab-btn" onclick="switchTab('adminTab')" style="display:none">⚙️ Admin</button>
   </div>
+
+  <div id="pyramidTab" class="tab-content active">
+    <div class="rules-grid">
+      <div class="rule-card"><h4>🎯 Défis éligibles</h4>Vous pouvez défier tous les joueurs <b>éligibles</b> (en surbrillance jaune).</div>
+      <div class="rule-card"><h4>⏳ Délais & Réservation</h4><b>1 semaine</b> pour jouer le match. Le challenger réserve le terrain et apporte les balles.</div>
+      <div class="rule-card"><h4>⚠️ Refus & Disqualification</h4>Un refus fait <b>perdre votre place</b>. <b>5 refus = disqualification</b>.</div>
+      <div class="rule-card"><h4>🎾 Matchs Homologués</h4>Format au choix. Tous les matchs 4ème série sont <b>homologués FFT</b>.</div>
+    </div>
+    <div id="pyramidDisplay" class="pyramid-container"></div>
+    <div class="honors-banner">
+      <div class="honor-item">🥇 Leader actuel <span id="honorFirst">-</span></div>
+      <div class="honor-item">🚀 Meilleure Progression <span id="honorProgression">-</span></div>
+      <div class="honor-item">🔥 Plus grand nombre de matchs <span id="honorMostMatches">-</span></div>
+    </div>
+  </div>
+
+  <div id="chatTab" class="tab-content">
+    <div class="action-panel" style="max-width:700px;margin:0 auto">
+      <h2>💬 Chat Général du Club</h2>
+      <div class="chat-box" id="generalChatBox"></div>
+      <div style="display:flex;gap:10px">
+        <input type="text" id="generalChatInput" placeholder="Écrire un message au club..." style="flex:1">
+        <button class="btn" onclick="sendGeneralMessage()">Envoyer</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="matchesTab" class="tab-content">
+    <h2>Défis en cours</h2>
+    <div id="matchesList" style="margin-top:15px"></div>
+  </div>
+
+  <div id="statsTab" class="tab-content">
+    <h2>Classement Général & Historique</h2>
+    <table>
+      <thead><tr><th>Pos.</th><th>Joueur</th><th>Sexe</th><th>FFT</th><th>Matchs</th><th>Victoires</th><th>Refus</th><th>Statut</th></tr></thead>
+      <tbody id="statsTableBody"></tbody>
+    </table>
+  </div>
+
   <div id="adminTab" class="tab-content">
-  <h2>⚙️ Panneau d'administration</h2>
-
-  <!-- 1. LIENS D'INVITATION & ACCÈS -->
-  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-    <h3>🎟️ Liens d'invitation</h3>
-    <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px;">Générez un lien unique pour contrôler les inscriptions au club.</p>
-    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-      <button onclick="generateInviteLink()" class="btn">Générer un lien unique</button>
-      <input type="text" id="inviteLinkOutput" readonly placeholder="Le lien généré s'affichera ici" style="flex: 1; padding: 8px; border-radius: 5px; border: 1px solid #334155; background: #0f172a; color: #fff;">
-    </div>
-  </div>
-
-  <!-- 2. GESTION DES SESSIONS / CHAMPIONNAT -->
-  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-    <h3>🏆 Gestion des Sessions</h3>
-    <div style="display: flex; gap: 15px; align-items: center; margin-top: 10px;">
-      <label>Date de fin de session :</label>
-      <input type="date" id="sessionEndDateInput" style="padding: 8px; border-radius: 5px; border: 1px solid #334155; background: #0f172a; color: #fff;">
-      <button onclick="updateSessionDate()" class="btn">Mettre à jour la date</button>
-      <button onclick="rebuildStartPositions()" class="btn">🔄 Recalculer le départ selon le classement FFT</button>
-    </div>
-    <div style="margin-top: 15px; border-top: 1px solid #334155; padding-top: 15px;">
-      <button onclick="resetPyramidSeason()" class="btn" style="background-color: #ef4444;">⚠️ Clôturer la session et réinitialiser la pyramide</button>
-    </div>
-  </div>
-
-  <!-- 3. GESTION DES JOUEURS -->
-  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-    <h3>👥 Gestion des Joueurs</h3>
-    <div id="adminPlayersList" style="margin-top: 10px;">
-      <!-- Liste injectée par JavaScript -->
-      <p style="color: var(--text-muted);">Chargement de la liste des joueurs...</p>
-    </div>
-  </div>
-
-  <!-- 4. GESTION DES MATCHS & SCORES -->
-  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-    <h3>🎾 Modération des Matchs</h3>
-    <div id="adminMatchesList" style="margin-top: 10px;">
-      <!-- Liste injectée par JavaScript -->
-      <p style="color: var(--text-muted);">Chargement des matchs en cours...</p>
-    </div>
-  </div>
-
-  <!-- 5. MODÉRATION DES MESSAGES -->
-  <div style="background: var(--card-bg); padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-top: 15px;">
-    <h3>💬 Modération du Tchat</h3>
-    <div id="adminChatList" style="margin-top: 10px;">
-      <!-- Derniers messages injectés par JavaScript -->
-      <p style="color: var(--text-muted);">Chargement des messages...</p>
-    </div>
-  </div>
-  <script>
-    // Fonction de génération et copie du lien d'invitation
-  async function generateInviteLink() {
-    const token = 'INV-' + Math.random().toString(36).substring(2, 9).toUpperCase();
-    const baseUrl = window.location.origin + window.location.pathname;
-    const inviteUrl = `${baseUrl}?invite=${token}`;
-    
-    const inputEl = document.getElementById('inviteLinkOutput');
-    if (inputEl) {
-      inputEl.value = inviteUrl;
-    }
-
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-      alert("✅ Lien généré et copié dans le presse-papier !\n\nLien : " + inviteUrl);
-    } catch (err) {
-      alert("✅ Lien généré : " + inviteUrl);
-    }
-  }
-// 2. CHARGEMENT GLOBAL DES DONNÉES DU PANNEAU ADMIN
-async function renderAdminDashboard() {
-  await Promise.all([
-    renderAdminPlayers(),
-    renderAdminMatches(),
-    renderAdminChat()
-  ]);
-}
-
-
-// 3. GESTION DES JOUEURS (AFFICHAGE, CLASSEMENT FFT & MASQUAGE)
-async function renderAdminPlayers() {
-  const container = document.getElementById('adminPlayersList');
-  if (!container) return;
-
-  const { data: players, error } = await _supabase.from('players').select('*');
-  if (error || !players) {
-    container.innerHTML = `<p style="color: #ef4444;">Erreur de chargement des joueurs.</p>`;
-    return;
-  }
-
-  if (players.length === 0) {
-    container.innerHTML = `<p style="color: var(--text-muted);">Aucun joueur inscrit.</p>`;
-    return;
-  }
-
-  container.innerHTML = players.map(p => {
-    const isHidden = p.is_hidden || false;
-    const rank = p.fft_rank || 'N.C';
-    const email = p.email || 'Sans email';
-    const name = p.name || 'Joueur';
-
-    return `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #334155;">
-        <div>
-          <strong>${name}</strong> (${email}) <br>
-          <span style="font-size: 0.85em; color: var(--text-muted);">FFT: ${rank} | Status: ${isHidden ? '🙈 Masqué' : '👁️ Visible'}</span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button onclick="updateFFTRank('${p.id}', '${rank}')" style="background-color: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">FFT</button>
-          <button onclick="toggleVisibility('${p.id}', ${isHidden})" style="background-color: #eab308; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">${isHidden ? 'Afficher' : 'Masquer'}</button>
-          <button onclick="deletePlayer('${p.id}')" style="background-color: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Supprimer</button>
-        </div>
+    <h2>⚙️ Panneau d'administration</h2>
+    <div class="admin-box">
+      <h3>🎟️ Liens d'invitation</h3>
+      <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Le lien affiche le formulaire de création de compte.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="generateInviteLink()" class="btn">Générer un lien</button>
+        <input type="text" id="inviteLinkOutput" readonly placeholder="Le lien s'affichera ici" style="flex:1;min-width:200px">
       </div>
-    `;
-  }).join('');
-}
-
-  // Modifier le classement FFT d'un joueur par l'Admin
-  async function updateFFTRank(playerId, currentRank) {
-    const newRank = prompt("Nouveau classement FFT du joueur (ex: 30/1, 15/2...) :", currentRank);
-    if (newRank !== null) {
-      const { error } = await _supabase.from('players').update({ fft_rank: newRank }).eq('id', playerId);
-      if (!error) {
-        alert("Classement mis à jour !");
-        renderAdminPlayers();
-      }
-    }
-  }
-
-  // Masquer ou afficher un joueur sur la pyramide
-  async function toggleVisibility(playerId, currentHiddenStatus) {
-    const { error } = await _supabase.from('players').update({ is_hidden: !currentHiddenStatus }).eq('id', playerId);
-    if (!error) {
-      renderAdminPlayers();
-    }
-  }
-async function deletePlayer(playerId) {
-  if (confirm("Voulez-vous vraiment supprimer ce joueur ?")) {
-    const { error } = await _supabase.from('players').delete().eq('id', playerId);
-    if (!error) {
-      alert("Joueur supprimé avec succès.");
-      renderAdminPlayers();
-    } else {
-      alert("Erreur lors de la suppression.");
-    }
-  }
-}
-
-// 4. MODÉRATION DES MATCHS
-async function renderAdminMatches() {
-  const box = document.getElementById('adminMatchesList');
-  if (!box) return;
-  await loadData();
-  const name = id => (state.rawPlayers.find(p => String(p.id) === String(id)) || {}).name || '?';
-  const list = [...state.matches].reverse();
-  if (!list.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match.</p>'; return; }
-  box.innerHTML = list.map(m => `
-    <div style="padding:8px;border-bottom:1px solid #334155;text-align:left">
-      <b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b>
-      — ${m.status}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + m.score : ''}
-      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn" onclick="adminSetWinner('${m.id}','${m.challenger_id}')">Gagnant : ${name(m.challenger_id)}</button>
-        <button class="btn" onclick="adminSetWinner('${m.id}','${m.defender_id}')">Gagnant : ${name(m.defender_id)}</button>
-        <button class="btn" style="background:#eab308" onclick="adminReopen('${m.id}')">Rouvrir</button>
-        <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button>
-      </div>
-    </div>`).join('');
-}
-
-async function adminSetWinner(id, winnerId) {
-  const m = state.matches.find(x => String(x.id) === String(id));
-  await _supabase.from('matches').update({
-    status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString()
-  }).eq('id', id);
-  afterAdminChange();
-}
-async function adminReopen(id) {
-  await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, played_at: null }).eq('id', id);
-  afterAdminChange();
-}
-async function adminDeleteMatch(id) {
-  if (!confirm('Supprimer définitivement ce match ?')) return;
-  await _supabase.from('matches').delete().eq('id', id);
-  afterAdminChange();
-}
-async function afterAdminChange() { await renderAdminMatches(); updateView(); }
-
-// 5. MODÉRATION DES MESSAGES DU TCHAT
-async function renderAdminChat() {
-  const container = document.getElementById('adminChatList');
-  if (!container) return;
-
-  const { data: messages, error } = await _supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(5);
-  if (error || !messages || messages.length === 0) {
-    container.innerHTML = `<p style="color: var(--text-muted);">Aucun message récent.</p>`;
-    return;
-  }
-
-  container.innerHTML = messages.map(msg => `
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #334155;">
-      <span style="font-size: 0.9em;">${msg.text || msg.content || 'Message vide'}</span>
-      <button onclick="deleteChatMessage('${msg.id}')" style="background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Supprimer</button>
     </div>
-  `).join('');
-}
+    <div class="admin-box">
+      <h3>🏆 Gestion de la session</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <button onclick="rebuildStartPositions()" class="btn">🔄 Recalculer le départ selon le classement FFT</button>
+        <button onclick="resetPyramidSeason()" class="btn btn-danger">⚠️ Nouvelle saison (efface les matchs)</button>
+      </div>
+    </div>
+    <div class="admin-box"><h3>👥 Gestion des Joueurs</h3><div id="adminPlayersList" style="margin-top:10px"></div></div>
+    <div class="admin-box"><h3>🎾 Modération des Matchs</h3><div id="adminMatchesList" style="margin-top:10px"></div></div>
+    <div class="admin-box"><h3>💬 Modération du Tchat</h3><div id="adminChatList" style="margin-top:10px"></div></div>
+  </div>
+</div>
 
-async function deleteChatMessage(msgId) {
-  if (confirm("Supprimer ce message ?")) {
-    await _supabase.from('messages').delete().eq('id', msgId);
-    renderAdminChat();
-  }
-}
-    const SUPABASE_URL = "https://nzlathoksbeghfhigfav.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bGF0aG9rc2JlZ2hmaGlnZmF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMTY2OTksImV4cCI6MjEwNTU5MjY5OX0.ULm9jKTW3NvTn-BNQjVGFwmm_LnkDqK4OeFYhp1TQ34";
-    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<script>
+const SUPABASE_URL = "https://nzlathoksbeghfhigfav.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bGF0aG9rc2JlZ2hmaGlnZmF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMTY2OTksImV4cCI6MjEwNTU5MjY5OX0.ULm9jKTW3NvTn-BNQjVGFwmm_LnkDqK4OeFYhp1TQ34";
+const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    let state = {
-      players: [],
-      matches: [],
-      generalChat: [],
-      currentUserId: null
-    };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const same = (a, b) => String(a) === String(b);
+const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
+const SIGNUP_RANKS = FFT_ORDER.slice(0, 13);
+const INVITE = new URLSearchParams(location.search).get('invite');
 
- async function init() {
-    await loadData();
-    populateUserSelect();
-    
-    if (state.players.length > 0 && !state.currentUserId) {
-        state.currentUserId = state.players[0].id;
-    }
+let state = { players: [], rawPlayers: [], matches: [], generalChat: [], currentUserId: null };
 
-    updateView();
-    checkAdmin();
-}
-
-function checkAdmin() {
-    const adminBtn = document.getElementById('adminTabBtn');
-    if (!adminBtn) return;
-
-    const currentUser = state.players.find(p => String(p.id) === String(state.currentUserId));
-
-    if (currentUser && currentUser.role === 'admin') {
-        adminBtn.style.display = 'inline-block';
-    } else {
-        adminBtn.style.display = 'none';
-    }
-}
-
-
-     const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
-
+/* ---------- Pyramide (calculée depuis le départ + l'historique des matchs) ---------- */
 function fftValue(r) {
-  const s = (r || 'NC').toString().trim().toUpperCase().replace('N.C', 'NC');
-  const i = FFT_ORDER.indexOf(s);
+  const i = FFT_ORDER.indexOf((r || 'NC').toString().trim().toUpperCase().replace('N.C', 'NC'));
   return i === -1 ? 0 : i;
 }
 function sortByFFT(list) {
-  return [...list].sort((a, b) =>
-    fftValue(b.fft_rank) - fftValue(a.fft_rank) || (a.name || '').localeCompare(b.name || ''));
+  return [...list].sort((a, b) => fftValue(b.fft_rank) - fftValue(a.fft_rank) || (a.name || '').localeCompare(b.name || ''));
 }
 
 function computePyramid(players, matches) {
   const visible = players.filter(p => !p.is_hidden);
-  const withPos = visible.filter(p => p.start_position != null)
-                         .sort((a, b) => a.start_position - b.start_position);
+  const withPos = visible.filter(p => p.start_position != null).sort((a, b) => a.start_position - b.start_position);
   const noPos = sortByFFT(visible.filter(p => p.start_position == null));
   const order = [...withPos, ...noPos];
+  const startIdx = {}, stats = {};
+  order.forEach((p, i) => { startIdx[p.id] = i; stats[p.id] = { played: 0, wins: 0, refusals: 0 }; });
 
-  const done = matches
-    .filter(m => m.status === 'done' || m.status === 'forfeit')
+  const done = matches.filter(m => m.status === 'done' || m.status === 'forfeit')
     .sort((a, b) => new Date(a.played_at || a.created_at) - new Date(b.played_at || b.created_at));
 
-  const stats = {};
-  order.forEach(p => stats[p.id] = { played: 0, wins: 0, refusals: 0 });
-
   for (const m of done) {
-    if (m.status === 'done') {
-      [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
-    }
+    if (m.status === 'done') [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
     if (m.status === 'forfeit' && stats[m.defender_id]) stats[m.defender_id].refusals++;
     if (stats[m.winner_id]) stats[m.winner_id].wins++;
-
-    if (m.winner_id !== m.challenger_id) continue;        // le défenseur gagne : rien ne bouge
-    const c = order.findIndex(p => p.id === m.challenger_id);
-    const d = order.findIndex(p => p.id === m.defender_id);
+    if (!same(m.winner_id, m.challenger_id)) continue;           // le défenseur gagne : rien ne bouge
+    const c = order.findIndex(p => same(p.id, m.challenger_id));
+    const d = order.findIndex(p => same(p.id, m.defender_id));
     if (c === -1 || d === -1 || d > c) continue;
     const [p] = order.splice(c, 1);
-    order.splice(d, 0, p);                                // effet glissant
+    order.splice(d, 0, p);                                       // effet glissant
   }
 
   const busy = new Set();
   matches.filter(m => m.status === 'pending' || m.status === 'accepted')
-         .forEach(m => { busy.add(m.challenger_id); busy.add(m.defender_id); });
+    .forEach(m => { busy.add(String(m.challenger_id)); busy.add(String(m.defender_id)); });
 
   return order.map((p, i) => ({
-    ...p,
-    position: i + 1,
-    is_busy: busy.has(p.id),
+    ...p, position: i + 1,
+    is_busy: busy.has(String(p.id)),
     is_disqualified: p.is_disqualified || stats[p.id].refusals >= 5,
-    matches_played: stats[p.id].played,
-    wins: stats[p.id].wins,
-    refusals: stats[p.id].refusals
+    matches_played: stats[p.id].played, wins: stats[p.id].wins, refusals: stats[p.id].refusals,
+    progress: startIdx[p.id] - i
   }));
 }
 
@@ -594,326 +226,352 @@ async function loadData() {
   const { data: players } = await _supabase.from('players').select('*');
   const { data: matches } = await _supabase.from('matches').select('*');
   const { data: messages } = await _supabase.from('messages').select('*');
-
   state.rawPlayers = players || [];
   state.matches = matches || [];
   state.generalChat = (messages || []).filter(m => !m.match_id);
   state.players = computePyramid(state.rawPlayers, state.matches);
-
-  if (state.players.length && !state.currentUserId) state.currentUserId = state.players[0].id;
 }
 
 async function rebuildStartPositions(ask = true) {
-  if (ask && !confirm("Remettre la pyramide de départ selon le classement FFT ?")) return;
+  if (ask && !confirm("Remettre la pyramide de départ selon le classement FFT ?\n(Les résultats déjà saisis seront rejoués sur ce nouveau départ.)")) return;
   const sorted = sortByFFT(state.rawPlayers.filter(p => !p.is_hidden));
-  await Promise.all(sorted.map((p, i) =>
-    _supabase.from('players').update({ start_position: i + 1 }).eq('id', p.id)));
+  await Promise.all(sorted.map((p, i) => _supabase.from('players').update({ start_position: i + 1 }).eq('id', p.id)));
   await loadData();
   updateView();
 }
 
-    function populateUserSelect() {
-      const select = document.getElementById('currentUserSelect');
-      select.innerHTML = state.players.map((p, idx) => 
-        `<option value="${p.id}" ${p.id === state.currentUserId ? 'selected' : ''}>${p.name} (#${idx + 1})</option>`
-      ).join('');
-    }
-
-    function changeCurrentUser(id) {
-    state.currentUserId = id;
-    updateView();
-    checkAdmin();
+async function placeNewPlayer(id) {
+  await loadData();
+  const started = state.matches.some(m => m.status === 'done' || m.status === 'forfeit');
+  if (!started) return rebuildStartPositions(false);            // avant le 1er résultat : tri par FFT
+  const max = Math.max(0, ...state.rawPlayers.map(p => p.start_position || 0));
+  await _supabase.from('players').update({ start_position: max + 1 }).eq('id', id);   // ensuite : en bas
+  await loadData();
 }
 
-    function getCurrentUserIndex() {
-      return state.players.findIndex(p => p.id === state.currentUserId);
-    }
+/* ---------- Authentification ---------- */
+const authMsg = t => $('authMsg').textContent = t || '';
+function showAuth() { $('authScreen').style.display = 'flex'; $('appRoot').style.display = 'none'; }
 
-    function updateView() {
-      renderPyramid();
-      renderGeneralChat();
-      renderMatches();
-      renderStats();
-      updateHonors();
-    }
-
-    function getRowAndRange(index) {
-      let row = 1;
-      let count = 0;
-      while (count + row <= index) {
-        count += row;
-        row++;
-      }
-      return { row: row, maxChallengesAllowed: row - 1 };
-    }
-
-    function isEligibleToChallenge(targetIndex) {
-      const myIdx = getCurrentUserIndex();
-      if (myIdx === -1) return false;
-
-      const me = state.players[myIdx];
-      const target = state.players[targetIndex];
-
-      if (me.is_busy || me.is_disqualified || target.is_busy || target.is_disqualified) return false;
-
-      const diff = myIdx - targetIndex;
-      if (diff <= 0) return false;
-
-      const { maxChallengesAllowed } = getRowAndRange(myIdx);
-      return diff <= maxChallengesAllowed;
-    }
-
-    function renderPyramid() {
-      const container = document.getElementById('pyramidDisplay');
-      container.innerHTML = '';
-
-      let currentIndex = 0;
-      let rowSize = 1;
-      const totalPlayers = state.players.length;
-      const myIdx = getCurrentUserIndex();
-
-      while (currentIndex < totalPlayers) {
-        const rowDiv = document.createElement('div');
-        rowDiv.className = 'pyramid-row';
-
-        for (let i = 0; i < rowSize && currentIndex < totalPlayers; i++) {
-          const player = state.players[currentIndex];
-          const playerIdx = currentIndex;
-
-          const card = document.createElement('div');
-          card.className = 'player-card';
-
-          if (playerIdx === myIdx) card.classList.add('is-me');
-          if (player.is_disqualified) card.classList.add('disqualified');
-          else if (player.is_busy) card.classList.add('busy');
-          else if (isEligibleToChallenge(playerIdx)) card.classList.add('eligible');
-
-          card.innerHTML = `
-            <span class="rank">#${playerIdx + 1}</span>
-            <span class="gender-icon">${player.gender === 'F' ? '👩' : '👨'}</span>
-            <span class="name">${player.name}</span>
-            <span class="badge">${player.fft_rank}</span>
-          `;
-
-          card.onclick = () => handlePlayerClick(playerIdx);
-          rowDiv.appendChild(card);
-          currentIndex++;
-        }
-
-        container.appendChild(rowDiv);
-        rowSize++;
-      }
-    }
-
-    function handlePlayerClick(index) {
-      const myIdx = getCurrentUserIndex();
-      if (index === myIdx) return;
-
-      if (isEligibleToChallenge(index)) {
-        proposeMatch(myIdx, index);
-      } else {
-        const { maxChallengesAllowed } = getRowAndRange(myIdx);
-        alert(`Vous ne pouvez défier que les ${maxChallengesAllowed} joueur(s) au-dessus de vous.`);
-      }
-    }
-
-    async function proposeMatch(challengerIdx, defenderIdx) {
-      const p1 = state.players[challengerIdx];
-      const p2 = state.players[defenderIdx];
-
-
-      const limitDate = new Date();
-      limitDate.setDate(limitDate.getDate() + 7);
-
-      const { data: newMatch } = await _supabase.from('matches').insert([{
-        challenger_id: p1.id,
-        defender_id: p2.id,
-        status: 'pending',
-        limit_date: limitDate.toISOString().split('T')[0]
-      }]).select().single();
-
-      await _supabase.from('messages').insert([{
-        match_id: newMatch.id,
-        sender_name: 'Système',
-        text: `Défi proposé par ${p1.name}. Date limite : ${limitDate.toLocaleDateString('fr-FR')}.`
-      }]);
-
-      await loadData();
-      updateView();
-      switchTab('matchesTab');
-    }
-
-    function renderGeneralChat() {
-      const box = document.getElementById('generalChatBox');
-      box.innerHTML = state.generalChat.map(m => `
-        <div class="chat-msg"><span class="sender">${m.sender_name}:</span> ${m.text}</div>
-      `).join('');
-      box.scrollTop = box.scrollHeight;
-    }
-
-    async function sendGeneralMessage() {
-      const input = document.getElementById('generalChatInput');
-      const text = input.value.trim();
-      if (!text) return;
-
-      const me = state.players.find(p => p.id === state.currentUserId);
-      await _supabase.from('messages').insert([{
-        sender_name: me ? me.name : 'Anonyme',
-        text: text
-      }]);
-
-      input.value = '';
-      await loadData();
-      renderGeneralChat();
-    }
-
-    function renderMatches() {
-      const container = document.getElementById('matchesList');
-      const active = state.matches.filter(m => m.status === 'pending' || m.status === 'accepted');
-      if (active.length === 0) {
-        container.innerHTML = "<div class='action-panel'><p>Aucun défi en cours.</p></div>";
-        return;
-      }
-
-      const me = state.players.find(p => p.id === state.currentUserId);
-
-      container.innerHTML = active.map(m => {
-        const p1 = state.players.find(p => p.id === m.challenger_id);
-        const p2 = state.players.find(p => p.id === m.defender_id);
-
-        if (!p1 || !p2) return '';
-
-        let actions = '';
-        if (m.status === 'pending') {
-          if (me && me.id === m.defender_id) {
-            actions = `
-              <div style="margin-top:10px;">
-                <button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button>
-                <button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button>
-              </div>`;
-          } else {
-            actions = `<p style="margin-top:10px; color:var(--pending-color)">En attente de ${p2.name}...</p>`;
-          }
-        } else {
-          actions = `
-            <div style="margin-top:10px;">
-              <p style="margin-bottom:5px;">Saisir le résultat :</p>
-              <button class="btn btn-success" onclick="resolveMatch('${m.id}', '${p1.id}')">Victoire ${p1.name}</button>
-              <button class="btn btn-success" onclick="resolveMatch('${m.id}', '${p2.id}')">Victoire ${p2.name}</button>
-            </div>`;
-        }
-
-        return `
-          <div class="match-card" style="background:#0f172a; border:1px solid #334155; padding:15px; border-radius:8px; margin-bottom:15px; text-align:left;">
-            <h3>🎾 ${p1.name} VS ${p2.name}</h3>
-            <p style="font-size:0.8rem; color:var(--text-muted)">Fin de validité : ${m.limit_date}</p>
-            ${actions}
-          </div>
-        `;
-      }).join('');
-    }
-
-    async function acceptMatch(matchId) {
-      await _supabase.from('matches').update({ status: 'accepted' }).eq('id', matchId);
-      await loadData();
-      updateView();
-    }
-
-   async function refuseMatch(matchId) {
-  const m = state.matches.find(x => String(x.id) === String(matchId));
-  await _supabase.from('matches').update({
-    status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString()
-  }).eq('id', matchId);
-  await loadData(); updateView();
+async function boot() {
+  $('fftRank').innerHTML = SIGNUP_RANKS.map(r => `<option value="${r}">${r}</option>`).join('');
+  if (INVITE) $('signupBox').style.display = 'block';
+  const { data: { session } } = await _supabase.auth.getSession();
+  if (session) await enterApp(session.user); else showAuth();
 }
 
-   async function resolveMatch(matchId, winnerId) {
-  const score = prompt("Score (ex : 6-4 3-6 10-7) :") || '';
-  await _supabase.from('matches').update({
-    status: 'done', winner_id: winnerId, score, played_at: new Date().toISOString()
-  }).eq('id', matchId);
-  await loadData(); updateView();
-}
+$('loginForm').onsubmit = async e => {
+  e.preventDefault(); authMsg('');
+  const { data, error } = await _supabase.auth.signInWithPassword({
+    email: $('loginEmail').value.trim(), password: $('loginPassword').value });
+  if (error) return authMsg(error.message === 'Invalid login credentials' ? 'Email ou mot de passe incorrect.' : error.message);
+  await enterApp(data.user);
+};
 
-    function renderStats() {
-      const tbody = document.getElementById('statsTableBody');
-      tbody.innerHTML = state.players.map((p, idx) => `
-        <tr>
-          <td><b>#${idx + 1}</b></td>
-          <td>${p.name}</td>
-          <td>${p.gender === 'F' ? '👩 Femme' : '👨 Homme'}</td>
-          <td>${p.fft_rank}</td>
-          <td>${p.matches_played}</td>
-          <td>${p.wins}</td>
-          <td>${p.refusals}/5</td>
-          <td>${p.is_disqualified ? '❌ Disqualifié' : '✅ Actif'}</td>
-        </tr>
-      `).join('');
-    }
-
-    function updateHonors() {
-      if (state.players.length === 0) return;
-      document.getElementById('honorFirst').innerText = state.players[0].name;
-    }
-
-    document.getElementById('registerForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const name = document.getElementById('playerName').value.trim();
-      const gender = document.getElementById('playerGender').value;
-      const fftRank = document.getElementById('fftRank').value;
-
-      const { data: created, error } = await _supabase.from('players')
-        .insert([{ name, gender, fft_rank: fftRank }]).select().single();
-      if (error) { alert("Erreur d'inscription : " + error.message); return; }
-
-      await loadData();
-
-      // Le championnat a-t-il déjà commencé ? (au moins un match terminé)
-      const started = state.matches.some(m => m.status === 'done' || m.status === 'forfeit');
-      if (!started) {
-        // Avant le 1er résultat : tout le monde est replacé selon le classement FFT
-        await rebuildStartPositions(false);
-      } else {
-        // Ensuite : le nouveau joueur arrive en bas de la pyramide
-        const max = Math.max(0, ...state.rawPlayers.map(p => p.start_position || 0));
-        await _supabase.from('players').update({ start_position: max + 1 }).eq('id', created.id);
-        await loadData();
-      }
-
-      document.getElementById('playerName').value = '';
-      populateUserSelect();
-      updateView();
-      switchTab('pyramidTab');
-    };
-
-    function switchTab(id, event) {
-      document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
-      if (event) event.target.classList.add('active');
-      if (id === 'adminTab') renderAdminDashboard();
-    }
-
-    window.onload = init;
-    // VERROUILLAGE : Masque l'onglet d'inscription si le lien d'invitation est absent
-  function checkInviteAccess() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const inviteToken = urlParams.get('invite');
-    
-    // Recherche du bouton Inscription dans la navigation
-    const registerBtn = document.querySelector('button[onclick*="registerTab"]');
-    
-    if (!inviteToken) {
-      // Pas de lien d'invitation -> on cache le bouton
-      if (registerBtn) registerBtn.style.display = 'none';
-    } else {
-      // Lien présent -> on affiche le bouton
-      if (registerBtn) registerBtn.style.display = 'inline-block';
-    }
+$('signupForm').onsubmit = async e => {
+  e.preventDefault(); authMsg('');
+  const email = $('signupEmail').value.trim(), password = $('signupPassword').value;
+  const name = $('playerName').value.trim(), gender = $('playerGender').value, fft = $('fftRank').value;
+  const { data, error } = await _supabase.auth.signUp({ email, password });
+  if (error) return authMsg(error.message);
+  await loadData();
+  const claim = state.rawPlayers.find(p => !p.user_id && p.email && p.email.toLowerCase() === email.toLowerCase());
+  if (claim) {
+    await _supabase.from('players').update({ user_id: data.user.id }).eq('id', claim.id);
+  } else {
+    const { data: created, error: e2 } = await _supabase.from('players')
+      .insert([{ name, gender, fft_rank: fft, email, user_id: data.user.id }]).select().single();
+    if (e2) return authMsg('Erreur de création du profil : ' + e2.message);
+    await placeNewPlayer(created.id);
   }
+  if (!data.session) return authMsg('Compte créé ! Confirmez votre email, puis connectez-vous.');
+  await enterApp(data.user);
+};
 
-  // Lancement automatique au chargement de la page
-  window.addEventListener('DOMContentLoaded', checkInviteAccess);
-  </script>
+async function enterApp(user) {
+  await loadData();
+  let me = state.rawPlayers.find(p => same(p.user_id, user.id));
+  if (!me) {   // profil existant à lier via l'email
+    me = state.rawPlayers.find(p => !p.user_id && p.email && p.email.toLowerCase() === (user.email || '').toLowerCase());
+    if (me) { await _supabase.from('players').update({ user_id: user.id }).eq('id', me.id); me.user_id = user.id; }
+  }
+  if (!me) {
+    await _supabase.auth.signOut(); showAuth();
+    return authMsg("Aucun profil joueur lié à ce compte. Contactez l'administrateur.");
+  }
+  state.currentUserId = me.id;
+  $('authScreen').style.display = 'none';
+  $('appRoot').style.display = 'block';
+  $('whoami').textContent = '👤 ' + me.name;
+  updateView(); checkAdmin();
+}
+
+async function logout() {
+  await _supabase.auth.signOut();
+  state.currentUserId = null; authMsg(''); showAuth();
+}
+
+function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)); }
+function isAdmin() { const u = currentUser(); return !!u && u.role === 'admin'; }
+function checkAdmin() { $('adminTabBtn').style.display = isAdmin() ? 'inline-block' : 'none'; }
+function getCurrentUserIndex() { return state.players.findIndex(p => same(p.id, state.currentUserId)); }
+
+/* ---------- Affichage ---------- */
+function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); }
+
+function switchTab(id) {
+  document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
+  $(id).classList.add('active');
+  const b = document.querySelector(`.tab-btn[onclick*="'${id}'"]`);
+  if (b) b.classList.add('active');
+  if (id === 'adminTab') renderAdminDashboard();
+}
+
+function getRowAndRange(index) {
+  let row = 1, count = 0;
+  while (count + row <= index) { count += row; row++; }
+  return { row, maxChallengesAllowed: row - 1 };
+}
+
+function isEligibleToChallenge(targetIndex) {
+  const myIdx = getCurrentUserIndex();
+  if (myIdx === -1) return false;
+  const me = state.players[myIdx], target = state.players[targetIndex];
+  if (me.is_busy || me.is_disqualified || target.is_busy || target.is_disqualified) return false;
+  const diff = myIdx - targetIndex;
+  return diff > 0 && diff <= getRowAndRange(myIdx).maxChallengesAllowed;
+}
+
+function renderPyramid() {
+  const container = $('pyramidDisplay');
+  container.innerHTML = '';
+  let idx = 0, rowSize = 1;
+  const myIdx = getCurrentUserIndex();
+  while (idx < state.players.length) {
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'pyramid-row';
+    for (let i = 0; i < rowSize && idx < state.players.length; i++, idx++) {
+      const player = state.players[idx], pIdx = idx;
+      const card = document.createElement('div');
+      card.className = 'player-card';
+      if (pIdx === myIdx) card.classList.add('is-me');
+      if (player.is_disqualified) card.classList.add('disqualified');
+      else if (player.is_busy) card.classList.add('busy');
+      else if (isEligibleToChallenge(pIdx)) card.classList.add('eligible');
+      card.innerHTML = `<span class="rank">#${pIdx + 1}</span><span class="gender-icon">${player.gender === 'F' ? '👩' : '👨'}</span>
+        <span class="name">${esc(player.name)}</span><span class="badge">${esc(player.fft_rank)}</span>`;
+      card.onclick = () => handlePlayerClick(pIdx);
+      rowDiv.appendChild(card);
+    }
+    container.appendChild(rowDiv);
+    rowSize++;
+  }
+}
+
+function handlePlayerClick(index) {
+  const myIdx = getCurrentUserIndex();
+  if (index === myIdx || myIdx === -1) return;
+  if (isEligibleToChallenge(index)) {
+    if (confirm(`Défier ${state.players[index].name} ?`)) proposeMatch(myIdx, index);
+  } else {
+    alert(`Vous ne pouvez défier que les ${getRowAndRange(myIdx).maxChallengesAllowed} joueur(s) juste au-dessus de vous, s'ils sont disponibles.`);
+  }
+}
+
+async function proposeMatch(cIdx, dIdx) {
+  const p1 = state.players[cIdx], p2 = state.players[dIdx];
+  const limit = new Date(); limit.setDate(limit.getDate() + 7);
+  const { data: nm, error } = await _supabase.from('matches').insert([{
+    challenger_id: p1.id, defender_id: p2.id, status: 'pending', limit_date: limit.toISOString().split('T')[0]
+  }]).select().single();
+  if (error) return alert('Erreur : ' + error.message);
+  await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système',
+    text: `Défi proposé par ${p1.name}. Date limite : ${limit.toLocaleDateString('fr-FR')}.` }]);
+  await loadData(); updateView(); switchTab('matchesTab');
+}
+
+/* ---------- Chat ---------- */
+function renderGeneralChat() {
+  const box = $('generalChatBox');
+  box.innerHTML = state.generalChat.map(m => `<div class="chat-msg"><span class="sender">${esc(m.sender_name)}:</span> ${esc(m.text)}</div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+async function sendGeneralMessage() {
+  const input = $('generalChatInput'), text = input.value.trim();
+  if (!text) return;
+  const me = currentUser();
+  await _supabase.from('messages').insert([{ sender_name: me ? me.name : 'Anonyme', text }]);
+  input.value = '';
+  await loadData(); renderGeneralChat();
+}
+
+/* ---------- Matchs ---------- */
+function renderMatches() {
+  const container = $('matchesList');
+  const active = state.matches.filter(m => m.status === 'pending' || m.status === 'accepted');
+  if (!active.length) { container.innerHTML = "<div class='action-panel'><p>Aucun défi en cours.</p></div>"; return; }
+  const me = currentUser();
+  container.innerHTML = active.map(m => {
+    const p1 = state.players.find(p => same(p.id, m.challenger_id)), p2 = state.players.find(p => same(p.id, m.defender_id));
+    if (!p1 || !p2) return '';
+    const isDef = me && same(me.id, m.defender_id);
+    const canPlay = me && (isDef || same(me.id, m.challenger_id) || me.role === 'admin');
+    let actions = '';
+    if (m.status === 'pending') {
+      actions = isDef
+        ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button><button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button></div>`
+        : `<p style="margin-top:10px;color:var(--pending-color)">En attente de ${esc(p2.name)}...</p>`;
+    } else if (canPlay) {
+      actions = `<div style="margin-top:10px"><p style="margin-bottom:5px">Saisir le résultat :</p><div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p1.id}')">Victoire ${esc(p1.name)}</button>
+        <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p2.id}')">Victoire ${esc(p2.name)}</button></div></div>`;
+    }
+    return `<div style="background:var(--bg-color);border:1px solid var(--bd);padding:15px;border-radius:8px;margin-bottom:15px;text-align:left">
+      <h3>🎾 ${esc(p1.name)} VS ${esc(p2.name)}</h3>
+      <p style="font-size:.8rem;color:var(--text-muted)">Fin de validité : ${esc(m.limit_date)}</p>${actions}</div>`;
+  }).join('');
+}
+
+async function acceptMatch(id) {
+  await _supabase.from('matches').update({ status: 'accepted' }).eq('id', id);
+  await loadData(); updateView();
+}
+async function refuseMatch(id) {
+  if (!confirm('Refuser ce défi vous fait perdre votre place. Confirmer ?')) return;
+  const m = state.matches.find(x => same(x.id, id));
+  await _supabase.from('matches').update({ status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString() }).eq('id', id);
+  await loadData(); updateView();
+}
+async function resolveMatch(id, winnerId) {
+  const score = prompt('Score (ex : 6-4 3-6 10-7) :');
+  if (score === null) return;
+  await _supabase.from('matches').update({ status: 'done', winner_id: winnerId, score, played_at: new Date().toISOString() }).eq('id', id);
+  await loadData(); updateView();
+}
+
+/* ---------- Classements ---------- */
+function renderStats() {
+  $('statsTableBody').innerHTML = state.players.map((p, i) => `<tr><td><b>#${i + 1}</b></td><td>${esc(p.name)}</td>
+    <td>${p.gender === 'F' ? '👩 Femme' : '👨 Homme'}</td><td>${esc(p.fft_rank)}</td><td>${p.matches_played}</td><td>${p.wins}</td>
+    <td>${p.refusals}/5</td><td>${p.is_disqualified ? '❌ Disqualifié' : '✅ Actif'}</td></tr>`).join('');
+}
+function updateHonors() {
+  const P = state.players;
+  if (!P.length) return;
+  $('honorFirst').textContent = P[0].name;
+  const bp = [...P].sort((a, b) => b.progress - a.progress)[0];
+  $('honorProgression').textContent = bp.progress > 0 ? `${bp.name} (+${bp.progress})` : '-';
+  const bm = [...P].sort((a, b) => b.matches_played - a.matches_played)[0];
+  $('honorMostMatches').textContent = bm.matches_played > 0 ? `${bm.name} (${bm.matches_played})` : '-';
+}
+
+/* ---------- Admin ---------- */
+async function generateInviteLink() {
+  const url = `${location.origin}${location.pathname}?invite=INV-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+  $('inviteLinkOutput').value = url;
+  try { await navigator.clipboard.writeText(url); alert('✅ Lien copié !\n\n' + url); } catch (e) { alert('✅ Lien : ' + url); }
+}
+
+async function renderAdminDashboard() {
+  if (!isAdmin()) return;
+  await loadData();
+  await Promise.all([renderAdminPlayers(), renderAdminMatches(), renderAdminChat()]);
+}
+async function refreshAll() {
+  await loadData(); updateView();
+  if (isAdmin()) await Promise.all([renderAdminPlayers(), renderAdminMatches()]);
+}
+
+function renderAdminPlayers() {
+  const box = $('adminPlayersList');
+  if (!state.rawPlayers.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun joueur.</p>'; return; }
+  box.innerHTML = state.rawPlayers.map(p => `<div class="row">
+    <div style="text-align:left"><strong>${esc(p.name)}</strong> (${esc(p.email || 'sans email')})<br>
+      <span style="font-size:.85em;color:var(--text-muted)">FFT : ${esc(p.fft_rank)} | ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}${p.role === 'admin' ? ' | 🔑 Admin' : ''}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="updateFFTRank('${p.id}')">FFT</button>
+      <button class="btn btn-warn" onclick="toggleVisibility('${p.id}')">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
+      <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">Supprimer</button></div></div>`).join('');
+}
+async function updateFFTRank(id) {
+  const p = state.rawPlayers.find(x => same(x.id, id));
+  const v = prompt('Nouveau classement FFT (ex : 30/1, 15/2...) :', p.fft_rank);
+  if (v === null) return;
+  const r = v.trim().toUpperCase().replace('N.C', 'NC');
+  if (!FFT_ORDER.includes(r)) return alert('Classement inconnu. Valeurs possibles : ' + FFT_ORDER.join(', '));
+  await _supabase.from('players').update({ fft_rank: r }).eq('id', id);
+  await refreshAll();
+}
+async function toggleVisibility(id) {
+  const p = state.rawPlayers.find(x => same(x.id, id));
+  await _supabase.from('players').update({ is_hidden: !p.is_hidden }).eq('id', id);
+  await refreshAll();
+}
+async function deletePlayer(id) {
+  if (!confirm('Supprimer ce joueur et tous ses matchs ?')) return;
+  await _supabase.from('matches').delete().or(`challenger_id.eq.${id},defender_id.eq.${id}`);
+  const { error } = await _supabase.from('players').delete().eq('id', id);
+  if (error) alert('Erreur : ' + error.message);
+  await refreshAll();
+}
+
+function renderAdminMatches() {
+  const box = $('adminMatchesList');
+  const name = id => esc((state.rawPlayers.find(p => same(p.id, id)) || {}).name || '?');
+  const list = [...state.matches].reverse();
+  if (!list.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match.</p>'; return; }
+  box.innerHTML = list.map(m => `<div style="padding:8px;border-bottom:1px solid var(--bd);text-align:left">
+    <b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b> — ${esc(m.status)}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + esc(m.score) : ''}
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn" onclick="adminSetWinner('${m.id}','${m.challenger_id}')">Gagnant : ${name(m.challenger_id)}</button>
+      <button class="btn" onclick="adminSetWinner('${m.id}','${m.defender_id}')">Gagnant : ${name(m.defender_id)}</button>
+      <button class="btn btn-warn" onclick="adminReopen('${m.id}')">Rouvrir</button>
+      <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button></div></div>`).join('');
+}
+async function adminSetWinner(id, winnerId) {
+  const m = state.matches.find(x => same(x.id, id));
+  await _supabase.from('matches').update({ status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString() }).eq('id', id);
+  await refreshAll();
+}
+async function adminReopen(id) {
+  await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, played_at: null }).eq('id', id);
+  await refreshAll();
+}
+async function adminDeleteMatch(id) {
+  if (!confirm('Supprimer définitivement ce match ?')) return;
+  await _supabase.from('messages').delete().eq('match_id', id);
+  await _supabase.from('matches').delete().eq('id', id);
+  await refreshAll();
+}
+
+async function resetPyramidSeason() {
+  if (!confirm('Supprimer TOUS les matchs et repartir du classement FFT ?')) return;
+  await _supabase.from('messages').delete().not('match_id', 'is', null);
+  await _supabase.from('matches').delete().not('id', 'is', null);
+  await loadData();
+  await rebuildStartPositions(false);
+  await refreshAll();
+}
+
+async function renderAdminChat() {
+  const box = $('adminChatList');
+  const { data: msgs } = await _supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(5);
+  if (!msgs || !msgs.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun message récent.</p>'; return; }
+  box.innerHTML = msgs.map(m => `<div class="row"><span style="font-size:.9em">${esc(m.text)}</span>
+    <button class="btn btn-danger" onclick="deleteChatMessage('${m.id}')">Supprimer</button></div>`).join('');
+}
+async function deleteChatMessage(id) {
+  if (!confirm('Supprimer ce message ?')) return;
+  await _supabase.from('messages').delete().eq('id', id);
+  await loadData(); renderGeneralChat(); renderAdminChat();
+}
+
+/* ---------- Démarrage ---------- */
+window.addEventListener('DOMContentLoaded', boot);
+setInterval(async () => {   // rafraîchissement automatique toutes les 30 s
+  if (state.currentUserId && document.visibilityState === 'visible') { await loadData(); updateView(); }
+}, 30000);
+</script>
 </body>
 </html>
