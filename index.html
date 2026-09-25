@@ -55,6 +55,7 @@ th{background:var(--bg-color);color:#38bdf8}
 input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd);background:var(--bg-color);color:#fff}
 .admin-box{background:var(--card-bg);padding:20px;border-radius:10px;border:1px solid var(--bd);margin-top:15px;text-align:left}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.link{color:var(--accent-color);cursor:pointer;text-decoration:underline;background:none;border:none;font-size:.9rem;padding:0}
 #authScreen{position:fixed;inset:0;background:var(--bg-color);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;z-index:10}
 </style>
 </head>
@@ -63,13 +64,29 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
 <div id="authScreen">
   <div class="action-panel" style="width:100%;max-width:420px">
     <h2 style="color:#38bdf8">🎾 Pyramide du Club</h2>
+
     <form id="loginForm" style="margin-top:15px">
       <div class="form-group"><label>Email</label><input type="email" id="loginEmail" required></div>
       <div class="form-group"><label>Mot de passe</label><input type="password" id="loginPassword" required></div>
       <button class="btn" type="submit" style="width:100%">Se connecter</button>
+      <p style="margin-top:10px;text-align:right"><button type="button" class="link" onclick="showForgot()">Mot de passe oublié ?</button></p>
     </form>
+
+    <form id="forgotForm" style="display:none;margin-top:10px">
+      <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:10px">Entrez votre email, vous recevrez un lien pour choisir un nouveau mot de passe.</p>
+      <div class="form-group"><label>Email</label><input type="email" id="forgotEmail" required></div>
+      <button class="btn" type="submit" style="width:100%">Envoyer le lien</button>
+      <p style="margin-top:10px;text-align:right"><button type="button" class="link" onclick="showLogin()">Retour à la connexion</button></p>
+    </form>
+
+    <form id="resetForm" style="display:none;margin-top:10px">
+      <h3 style="margin-bottom:10px">Choisir un nouveau mot de passe</h3>
+      <div class="form-group"><label>Nouveau mot de passe (6 caractères minimum)</label><input type="password" id="resetPassword" minlength="6" required></div>
+      <button class="btn" type="submit" style="width:100%">Valider</button>
+    </form>
+
     <div id="signupBox" style="display:none;margin-top:25px;border-top:1px solid var(--bd);padding-top:20px">
-      <h3>Première visite ? Créer mon compte</h3>
+      <h3 id="signupClubName">Créer mon compte</h3>
       <form id="signupForm" style="margin-top:15px">
         <div class="form-group"><label>Nom / Prénom</label><input type="text" id="playerName" required placeholder="Ex: Roger Federer"></div>
         <div class="form-group"><label>Sexe</label>
@@ -80,6 +97,10 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
         <button class="btn" type="submit" style="width:100%">Créer mon compte</button>
       </form>
     </div>
+    <p id="inviteInvalidMsg" style="display:none;margin-top:20px;color:var(--busy-color)">
+      Ce lien d'invitation n'est pas valide. Demandez un nouveau lien à votre club.
+    </p>
+
     <p id="authMsg" style="margin-top:12px;color:var(--pending-color);font-size:.9rem"></p>
   </div>
 </div>
@@ -141,15 +162,18 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
   </div>
 
   <div id="adminTab" class="tab-content">
-    <h2>⚙️ Panneau d'administration</h2>
+    <h2>⚙️ Panneau d'administration — <span id="adminClubName"></span></h2>
+
     <div class="admin-box">
-      <h3>🎟️ Liens d'invitation</h3>
-      <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Le lien affiche le formulaire de création de compte.</p>
+      <h3>🎟️ Lien d'invitation de ce club</h3>
+      <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Toute personne qui s'inscrit via ce lien rejoint automatiquement ce club.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button onclick="generateInviteLink()" class="btn">Générer un lien</button>
-        <input type="text" id="inviteLinkOutput" readonly placeholder="Le lien s'affichera ici" style="flex:1;min-width:200px">
+        <button onclick="copyInviteLink()" class="btn">Copier le lien</button>
+        <input type="text" id="inviteLinkOutput" readonly style="flex:1;min-width:200px">
+        <button onclick="regenerateInviteToken()" class="btn btn-warn">🔄 Régénérer (invalide l'ancien lien)</button>
       </div>
     </div>
+
     <div class="admin-box">
       <h3>🏆 Gestion de la session</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
@@ -157,6 +181,17 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
         <button onclick="resetPyramidSeason()" class="btn btn-danger">⚠️ Nouvelle saison (efface les matchs)</button>
       </div>
     </div>
+
+    <div class="admin-box">
+      <h3>🏟️ Clubs</h3>
+      <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Créez un nouveau club : il aura sa propre pyramide et son propre lien d'invitation, invisible des autres clubs.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <input type="text" id="newClubName" placeholder="Nom du nouveau club" style="flex:1;min-width:180px">
+        <button onclick="createClub()" class="btn">➕ Créer le club</button>
+      </div>
+      <div id="clubsList"></div>
+    </div>
+
     <div class="admin-box"><h3>👥 Gestion des Joueurs</h3><div id="adminPlayersList" style="margin-top:10px"></div></div>
     <div class="admin-box"><h3>🎾 Modération des Matchs</h3><div id="adminMatchesList" style="margin-top:10px"></div></div>
     <div class="admin-box"><h3>💬 Modération du Tchat</h3><div id="adminChatList" style="margin-top:10px"></div></div>
@@ -173,11 +208,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const same = (a, b) => String(a) === String(b);
 const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
 const SIGNUP_RANKS = FFT_ORDER.slice(0, 13);
-const INVITE = new URLSearchParams(location.search).get('invite');
 
-let state = { players: [], rawPlayers: [], matches: [], generalChat: [], currentUserId: null };
+let state = { players: [], rawPlayers: [], matches: [], generalChat: [], currentUserId: null, myClub: null, allClubs: [] };
+let inviteClub = null;   // club ciblé par le lien ?invite=... au moment de l'inscription
 
-/* ---------- Pyramide (calculée depuis le départ + l'historique des matchs) ---------- */
+/* ---------- Pyramide (calculée depuis le départ + l'historique des matchs, dans un seul club) ---------- */
 function fftValue(r) {
   const i = FFT_ORDER.indexOf((r || 'NC').toString().trim().toUpperCase().replace('N.C', 'NC'));
   return i === -1 ? 0 : i;
@@ -222,10 +257,12 @@ function computePyramid(players, matches) {
   }));
 }
 
+// Charge uniquement les données du club de l'utilisateur connecté
 async function loadData() {
-  const { data: players } = await _supabase.from('players').select('*');
-  const { data: matches } = await _supabase.from('matches').select('*');
-  const { data: messages } = await _supabase.from('messages').select('*');
+  const clubId = state.myClub.id;
+  const { data: players } = await _supabase.from('players').select('*').eq('club_id', clubId);
+  const { data: matches } = await _supabase.from('matches').select('*').eq('club_id', clubId);
+  const { data: messages } = await _supabase.from('messages').select('*').eq('club_id', clubId);
   state.rawPlayers = players || [];
   state.matches = matches || [];
   state.generalChat = (messages || []).filter(m => !m.match_id);
@@ -253,11 +290,38 @@ async function placeNewPlayer(id) {
 const authMsg = t => $('authMsg').textContent = t || '';
 function showAuth() { $('authScreen').style.display = 'flex'; $('appRoot').style.display = 'none'; }
 
+function hideAllAuthForms() {
+  $('loginForm').style.display = 'none';
+  $('forgotForm').style.display = 'none';
+  $('resetForm').style.display = 'none';
+}
+function showLogin() { authMsg(''); hideAllAuthForms(); $('loginForm').style.display = 'block'; }
+function showForgot() { authMsg(''); hideAllAuthForms(); $('forgotForm').style.display = 'block'; }
+function showReset() { authMsg(''); hideAllAuthForms(); $('resetForm').style.display = 'block'; }
+
 async function boot() {
   $('fftRank').innerHTML = SIGNUP_RANKS.map(r => `<option value="${r}">${r}</option>`).join('');
-  if (INVITE) $('signupBox').style.display = 'block';
+
+  const token = new URLSearchParams(location.search).get('invite');
+  if (token) {
+    const { data: club } = await _supabase.from('clubs').select('*').eq('invite_token', token).maybeSingle();
+    if (club) {
+      inviteClub = club;
+      $('signupBox').style.display = 'block';
+      $('signupClubName').textContent = `Rejoindre "${club.name}"`;
+    } else {
+      $('inviteInvalidMsg').style.display = 'block';
+    }
+  }
+
+  // Supabase déclenche cet événement quand on arrive via le lien "mot de passe oublié"
+  _supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') { showAuth(); showReset(); }
+  });
+
   const { data: { session } } = await _supabase.auth.getSession();
-  if (session) await enterApp(session.user); else showAuth();
+  if (session && !location.hash.includes('type=recovery')) await enterApp(session.user);
+  else showAuth();
 }
 
 $('loginForm').onsubmit = async e => {
@@ -268,47 +332,73 @@ $('loginForm').onsubmit = async e => {
   await enterApp(data.user);
 };
 
+$('forgotForm').onsubmit = async e => {
+  e.preventDefault(); authMsg('');
+  const email = $('forgotEmail').value.trim();
+  const { error } = await _supabase.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) return authMsg(error.message);
+  authMsg('Email envoyé ! Vérifiez votre boîte de réception (et les spams) puis cliquez sur le lien reçu.');
+};
+
+$('resetForm').onsubmit = async e => {
+  e.preventDefault(); authMsg('');
+  const password = $('resetPassword').value;
+  const { error } = await _supabase.auth.updateUser({ password });
+  if (error) return authMsg(error.message);
+  history.replaceState(null, '', location.pathname + location.search);   // nettoie le lien
+  authMsg('Mot de passe mis à jour ! Connexion...');
+  const { data: { user } } = await _supabase.auth.getUser();
+  if (user) await enterApp(user); else showLogin();
+};
+
 $('signupForm').onsubmit = async e => {
   e.preventDefault(); authMsg('');
+  if (!inviteClub) return authMsg("Lien d'invitation invalide.");
   const email = $('signupEmail').value.trim(), password = $('signupPassword').value;
   const name = $('playerName').value.trim(), gender = $('playerGender').value, fft = $('fftRank').value;
+
   const { data, error } = await _supabase.auth.signUp({ email, password });
   if (error) return authMsg(error.message);
-  await loadData();
-  const claim = state.rawPlayers.find(p => !p.user_id && p.email && p.email.toLowerCase() === email.toLowerCase());
+
+  // Un profil avec cet email existe-t-il déjà dans CE club, en attente de compte ?
+  const { data: claim } = await _supabase.from('players').select('*')
+    .eq('club_id', inviteClub.id).eq('email', email).is('user_id', null).maybeSingle();
+
   if (claim) {
     await _supabase.from('players').update({ user_id: data.user.id }).eq('id', claim.id);
   } else {
     const { data: created, error: e2 } = await _supabase.from('players')
-      .insert([{ name, gender, fft_rank: fft, email, user_id: data.user.id }]).select().single();
-    if (e2) return authMsg('Erreur de création du profil : ' + e2.message);
+      .insert([{ name, gender, fft_rank: fft, email, user_id: data.user.id, club_id: inviteClub.id }]).select().single();
+    if (e2) return authMsg("Erreur de création du profil : " + e2.message);
+    state.myClub = inviteClub;
     await placeNewPlayer(created.id);
   }
+
   if (!data.session) return authMsg('Compte créé ! Confirmez votre email, puis connectez-vous.');
   await enterApp(data.user);
 };
 
 async function enterApp(user) {
-  await loadData();
-  let me = state.rawPlayers.find(p => same(p.user_id, user.id));
-  if (!me) {   // profil existant à lier via l'email
-    me = state.rawPlayers.find(p => !p.user_id && p.email && p.email.toLowerCase() === (user.email || '').toLowerCase());
-    if (me) { await _supabase.from('players').update({ user_id: user.id }).eq('id', me.id); me.user_id = user.id; }
-  }
+  const { data: me } = await _supabase.from('players').select('*').eq('user_id', user.id).maybeSingle();
   if (!me) {
-    await _supabase.auth.signOut(); showAuth();
-    return authMsg("Aucun profil joueur lié à ce compte. Contactez l'administrateur.");
+    await _supabase.auth.signOut(); showAuth(); showLogin();
+    return authMsg("Aucun profil joueur lié à ce compte. Utilisez le lien d'invitation de votre club.");
   }
+  const { data: club } = await _supabase.from('clubs').select('*').eq('id', me.club_id).single();
+  state.myClub = club;
   state.currentUserId = me.id;
+
+  await loadData();
   $('authScreen').style.display = 'none';
   $('appRoot').style.display = 'block';
-  $('whoami').textContent = '👤 ' + me.name;
+  $('whoami').textContent = `👤 ${me.name} — ${club.name}`;
   updateView(); checkAdmin();
 }
 
 async function logout() {
   await _supabase.auth.signOut();
-  state.currentUserId = null; authMsg(''); showAuth();
+  state = { players: [], rawPlayers: [], matches: [], generalChat: [], currentUserId: null, myClub: null, allClubs: [] };
+  showAuth(); showLogin();
 }
 
 function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)); }
@@ -383,10 +473,11 @@ async function proposeMatch(cIdx, dIdx) {
   const p1 = state.players[cIdx], p2 = state.players[dIdx];
   const limit = new Date(); limit.setDate(limit.getDate() + 7);
   const { data: nm, error } = await _supabase.from('matches').insert([{
-    challenger_id: p1.id, defender_id: p2.id, status: 'pending', limit_date: limit.toISOString().split('T')[0]
+    challenger_id: p1.id, defender_id: p2.id, status: 'pending',
+    limit_date: limit.toISOString().split('T')[0], club_id: state.myClub.id
   }]).select().single();
   if (error) return alert('Erreur : ' + error.message);
-  await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système',
+  await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système', club_id: state.myClub.id,
     text: `Défi proposé par ${p1.name}. Date limite : ${limit.toLocaleDateString('fr-FR')}.` }]);
   await loadData(); updateView(); switchTab('matchesTab');
 }
@@ -401,7 +492,7 @@ async function sendGeneralMessage() {
   const input = $('generalChatInput'), text = input.value.trim();
   if (!text) return;
   const me = currentUser();
-  await _supabase.from('messages').insert([{ sender_name: me ? me.name : 'Anonyme', text }]);
+  await _supabase.from('messages').insert([{ sender_name: me ? me.name : 'Anonyme', text, club_id: state.myClub.id }]);
   input.value = '';
   await loadData(); renderGeneralChat();
 }
@@ -466,16 +557,50 @@ function updateHonors() {
   $('honorMostMatches').textContent = bm.matches_played > 0 ? `${bm.name} (${bm.matches_played})` : '-';
 }
 
-/* ---------- Admin ---------- */
-async function generateInviteLink() {
-  const url = `${location.origin}${location.pathname}?invite=INV-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+/* ---------- Admin : club courant ---------- */
+function inviteUrlFor(token) { return `${location.origin}${location.pathname}?invite=${token}`; }
+async function copyInviteLink() {
+  const url = inviteUrlFor(state.myClub.invite_token);
   $('inviteLinkOutput').value = url;
   try { await navigator.clipboard.writeText(url); alert('✅ Lien copié !\n\n' + url); } catch (e) { alert('✅ Lien : ' + url); }
 }
+async function regenerateInviteToken() {
+  if (!confirm("L'ancien lien cessera de fonctionner. Continuer ?")) return;
+  const newToken = Math.random().toString(36).slice(2, 12);
+  await _supabase.from('clubs').update({ invite_token: newToken }).eq('id', state.myClub.id);
+  state.myClub.invite_token = newToken;
+  $('inviteLinkOutput').value = inviteUrlFor(newToken);
+  alert('Nouveau lien généré.');
+}
 
+/* ---------- Admin : liste des clubs (créer / voir) ---------- */
+async function loadAllClubs() {
+  const { data } = await _supabase.from('clubs').select('*').order('name');
+  state.allClubs = data || [];
+}
+function renderClubsList() {
+  $('clubsList').innerHTML = state.allClubs.map(c => `<div class="row">
+    <span>${esc(c.name)}${same(c.id, state.myClub.id) ? ' <i>(mon club)</i>' : ''}</span>
+    <button class="btn" onclick="navigator.clipboard.writeText('${inviteUrlFor(c.invite_token)}');alert('Lien copié pour ${esc(c.name)}')">Copier son lien</button>
+  </div>`).join('');
+}
+async function createClub() {
+  const name = $('newClubName').value.trim();
+  if (!name) return;
+  const { error } = await _supabase.from('clubs').insert([{ name }]);
+  if (error) return alert('Erreur : ' + error.message);
+  $('newClubName').value = '';
+  await loadAllClubs(); renderClubsList();
+}
+
+/* ---------- Admin : joueurs, matchs, chat (du club courant) ---------- */
 async function renderAdminDashboard() {
   if (!isAdmin()) return;
   await loadData();
+  await loadAllClubs();
+  $('adminClubName').textContent = state.myClub.name;
+  $('inviteLinkOutput').value = inviteUrlFor(state.myClub.invite_token);
+  renderClubsList();
   await Promise.all([renderAdminPlayers(), renderAdminMatches(), renderAdminChat()]);
 }
 async function refreshAll() {
@@ -486,12 +611,14 @@ async function refreshAll() {
 function renderAdminPlayers() {
   const box = $('adminPlayersList');
   if (!state.rawPlayers.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun joueur.</p>'; return; }
+  const clubOptions = c => state.allClubs.map(cl => `<option value="${cl.id}" ${same(cl.id, c) ? 'selected' : ''}>${esc(cl.name)}</option>`).join('');
   box.innerHTML = state.rawPlayers.map(p => `<div class="row">
     <div style="text-align:left"><strong>${esc(p.name)}</strong> (${esc(p.email || 'sans email')})<br>
       <span style="font-size:.85em;color:var(--text-muted)">FFT : ${esc(p.fft_rank)} | ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}${p.role === 'admin' ? ' | 🔑 Admin' : ''}</span></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="updateFFTRank('${p.id}')">FFT</button>
       <button class="btn btn-warn" onclick="toggleVisibility('${p.id}')">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
+      <select style="width:auto" onchange="changePlayerClub('${p.id}', this.value)">${clubOptions(p.club_id)}</select>
       <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">Supprimer</button></div></div>`).join('');
 }
 async function updateFFTRank(id) {
@@ -506,6 +633,14 @@ async function updateFFTRank(id) {
 async function toggleVisibility(id) {
   const p = state.rawPlayers.find(x => same(x.id, id));
   await _supabase.from('players').update({ is_hidden: !p.is_hidden }).eq('id', id);
+  await refreshAll();
+}
+async function changePlayerClub(id, newClubId) {
+  const p = state.rawPlayers.find(x => same(x.id, id));
+  if (same(p.club_id, newClubId)) return;
+  const club = state.allClubs.find(c => same(c.id, newClubId));
+  if (!confirm(`Déplacer ${p.name} vers "${club.name}" ? Il sortira de la pyramide actuelle.`)) { renderAdminPlayers(); return; }
+  await _supabase.from('players').update({ club_id: newClubId, start_position: null }).eq('id', id);
   await refreshAll();
 }
 async function deletePlayer(id) {
@@ -546,9 +681,12 @@ async function adminDeleteMatch(id) {
 }
 
 async function resetPyramidSeason() {
-  if (!confirm('Supprimer TOUS les matchs et repartir du classement FFT ?')) return;
-  await _supabase.from('messages').delete().not('match_id', 'is', null);
-  await _supabase.from('matches').delete().not('id', 'is', null);
+  if (!confirm('Supprimer TOUS les matchs de ce club et repartir du classement FFT ?')) return;
+  const ids = state.matches.map(m => m.id);
+  if (ids.length) {
+    await _supabase.from('messages').delete().in('match_id', ids);
+    await _supabase.from('matches').delete().in('id', ids);
+  }
   await loadData();
   await rebuildStartPositions(false);
   await refreshAll();
@@ -556,7 +694,7 @@ async function resetPyramidSeason() {
 
 async function renderAdminChat() {
   const box = $('adminChatList');
-  const { data: msgs } = await _supabase.from('messages').select('*').order('created_at', { ascending: false }).limit(5);
+  const { data: msgs } = await _supabase.from('messages').select('*').eq('club_id', state.myClub.id).order('created_at', { ascending: false }).limit(5);
   if (!msgs || !msgs.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun message récent.</p>'; return; }
   box.innerHTML = msgs.map(m => `<div class="row"><span style="font-size:.9em">${esc(m.text)}</span>
     <button class="btn btn-danger" onclick="deleteChatMessage('${m.id}')">Supprimer</button></div>`).join('');
