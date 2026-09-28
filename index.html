@@ -122,6 +122,8 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
   <div class="user-bar">
     <b id="whoami" style="color:#38bdf8"></b>
     <div style="display:flex;gap:10px;align-items:center">
+      <select id="viewClubSelect" onchange="switchViewClub(this.value)" style="display:none;width:auto"></select>
+      <button class="btn btn-warn" onclick="sendTestNotification()">🧪 Test</button>
       <button class="btn" id="pushBtn" onclick="enablePush()" style="display:none">🔔 Activer les alertes</button>
       <button class="btn notif-btn" onclick="toggleNotifPanel()">🔔<span class="notif-badge" id="notifBadge">0</span></button>
       <button class="btn btn-danger" onclick="logout()">Déconnexion</button>
@@ -182,12 +184,6 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
   <div id="adminTab" class="tab-content">
     <h2>⚙️ Panneau d'administration — <span id="adminClubName"></span></h2>
 
-    <div class="admin-box" id="clubSwitchBox" style="display:none">
-      <h3>🏟️ Club géré</h3>
-      <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Vous êtes super-admin : choisissez ici quel club administrer.</p>
-      <select id="adminClubSelect" onchange="adminChangeClub(this.value)"></select>
-    </div>
-
     <div class="admin-box">
       <h3>🎟️ Lien d'invitation de ce club</h3>
       <p style="color:var(--text-muted);font-size:.9em;margin:6px 0 10px">Toute personne qui s'inscrit via ce lien rejoint automatiquement ce club.</p>
@@ -231,13 +227,20 @@ const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const same = (a, b) => String(a) === String(b);
+function dbFail(error, ctx) {
+  if (!error) return false;
+  console.error(ctx, error);
+  alert(`Erreur — ${ctx} :\n${error.message}`);
+  return true;
+}
 const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
 const SIGNUP_RANKS = FFT_ORDER.slice(0, 13);
 
-let state = { players: [], rawPlayers: [], matches: [], messages: [], generalChat: [], notifications: [], currentUserId: null, myClub: null, allClubs: [], isSuperAdmin: false };
+let state = { players: [], rawPlayers: [], matches: [], messages: [], generalChat: [], notifications: [], currentUserId: null, me: null, myClub: null, viewClub: null, allClubs: [], isSuperAdmin: false };
 let admin = { clubId: null, club: null, rawPlayers: [], matches: [] };
 let inviteClub = null;
 let seenNotifIds = new Set();
+let pushActive = false;
 
 /* ---------- Pyramide ---------- */
 function fftValue(r) {
@@ -285,22 +288,27 @@ function computePyramid(players, matches) {
 }
 
 async function loadData() {
-  const clubId = state.myClub.id;
-  const { data: players } = await _supabase.from('players').select('*').eq('club_id', clubId);
-  const { data: matches } = await _supabase.from('matches').select('*').eq('club_id', clubId);
-  const { data: messages } = await _supabase.from('messages').select('*').eq('club_id', clubId);
+  const clubId = state.viewClub.id;
+  const { data: players, error: e1 } = await _supabase.from('players').select('*').eq('club_id', clubId);
+  const { data: matches, error: e2 } = await _supabase.from('matches').select('*').eq('club_id', clubId);
+  const { data: messages, error: e3 } = await _supabase.from('messages').select('*').eq('club_id', clubId);
+  if (e1 || e2 || e3) console.error('Chargement des données :', e1 || e2 || e3);
   state.rawPlayers = players || [];
   state.matches = matches || [];
   state.messages = messages || [];
   state.generalChat = state.messages.filter(m => !m.match_id);
   state.players = computePyramid(state.rawPlayers, state.matches);
 
+  // Mes notifications : liées à mon profil, quel que soit le club affiché
   if (state.currentUserId) {
-    const { data: notifs } = await _supabase.from('notifications').select('*')
-      .eq('club_id', clubId).eq('player_id', state.currentUserId)
+    const { data: notifs, error } = await _supabase.from('notifications').select('*')
+      .eq('player_id', state.currentUserId)
       .order('created_at', { ascending: false }).limit(30);
+    if (error) console.error('Notifications :', error);
     state.notifications = notifs || [];
   }
+  const mine = state.rawPlayers.find(p => same(p.id, state.currentUserId));
+  if (mine) state.me = mine;
 }
 
 function getMatchMessages(matchId) { return state.messages.filter(m => same(m.match_id, matchId)); }
@@ -321,7 +329,8 @@ async function placeNewPlayer(id) {
 /* ---------- Notifications (en app) ---------- */
 async function notify(clubId, playerId, type, text, matchId = null) {
   if (!playerId) return;
-  await _supabase.from('notifications').insert([{ club_id: clubId, player_id: playerId, type, text, match_id: matchId }]);
+  const { error } = await _supabase.from('notifications').insert([{ club_id: clubId, player_id: playerId, type, text, match_id: matchId }]);
+  if (error) console.error('Notification non créée :', error.message);
 }
 
 async function notifyPositionChanges(clubId, beforePlayers, afterPlayers) {
@@ -357,12 +366,29 @@ async function markAllNotifsRead() {
   if (ids.length) await _supabase.from('notifications').update({ is_read: true }).in('id', ids);
   await loadData(); renderNotifications();
 }
-function checkBrowserNotifications() {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  state.notifications.filter(n => !n.is_read).forEach(n => {
-    if (!seenNotifIds.has(n.id)) new Notification('🎾 Pyramide du Club', { body: n.text });
-  });
+async function checkBrowserNotifications() {
+  const fresh = state.notifications.filter(n => !n.is_read && !seenNotifIds.has(n.id));
   seenNotifIds = new Set(state.notifications.map(n => n.id));
+  // Si le push est actif, c'est lui qui affiche l'alerte : on évite le doublon
+  if (pushActive || !('Notification' in window) || Notification.permission !== 'granted') return;
+  for (const n of fresh) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.showNotification('🎾 Pyramide du Club', { body: n.text, icon: 'logo.png' });
+      else new Notification('🎾 Pyramide du Club', { body: n.text });
+    } catch (e) { console.error(e); }
+  }
+}
+
+async function sendTestNotification() {
+  const { error } = await _supabase.from('notifications').insert([{
+    club_id: state.myClub.id, player_id: state.currentUserId, type: 'test', text: '🧪 Notification de test : tout fonctionne !'
+  }]);
+  if (dbFail(error, 'création de la notification de test')) return;
+  await loadData(); renderNotifications();
+  alert(pushActive
+    ? "Test envoyé ✅\nVous devez voir la notification dans la cloche 🔔. Une alerte push doit aussi arriver sur cet appareil d'ici quelques secondes (fermez l'appli pour bien le vérifier)."
+    : "Test envoyé : visible dans la cloche 🔔.\n⚠️ Les alertes push ne sont PAS actives sur cet appareil : cliquez sur « Activer les alertes » (ou vérifiez l'autorisation des notifications du site).");
 }
 
 /* ---------- Notifications PUSH (même appli fermée) ---------- */
@@ -374,42 +400,52 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function setupPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    $('pushBtn').style.display = 'inline-block';   // le clic expliquera quoi faire (ex. iPhone)
+    return;
+  }
   try {
-    const reg = await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.register('sw.js');
+    const reg = await navigator.serviceWorker.ready;
     if (Notification.permission === 'granted') {
-      const existing = await reg.pushManager.getSubscription();
-      if (existing) await savePushSubscription(existing);
-      $('pushBtn').style.display = 'none';
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+      pushActive = await savePushSubscription(sub, true);
+      $('pushBtn').style.display = pushActive ? 'none' : 'inline-block';
     } else if (Notification.permission !== 'denied') {
       $('pushBtn').style.display = 'inline-block';
     }
-  } catch (e) { console.log('Service worker indisponible :', e); }
+  } catch (e) { console.error('Push indisponible :', e); $('pushBtn').style.display = 'inline-block'; }
 }
 
 async function enablePush() {
   try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert("Ce navigateur ne gère pas les notifications push.\nSur iPhone : installez d'abord le site sur l'écran d'accueil (Safari → Partager → « Sur l'écran d'accueil »), puis ouvrez-le depuis cette icône.");
+      return;
+    }
     const perm = await Notification.requestPermission();
-    if (perm !== 'granted') { alert("Vous avez refusé les notifications. Vous pouvez les réactiver dans les réglages du site."); return; }
+    if (perm !== 'granted') { alert("Notifications refusées. Vous pouvez les réactiver dans les réglages du site."); return; }
+    await navigator.serviceWorker.register('sw.js');
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-    await savePushSubscription(sub);
-    $('pushBtn').style.display = 'none';
-    alert('✅ Notifications activées, même appli fermée !');
-  } catch (e) { alert("Impossible d'activer les notifications : " + e.message); }
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    pushActive = await savePushSubscription(sub);
+    if (pushActive) { $('pushBtn').style.display = 'none'; alert('✅ Alertes activées sur cet appareil, même appli fermée !'); }
+  } catch (e) { alert("Impossible d'activer les alertes : " + e.message); }
 }
 
-async function savePushSubscription(sub) {
+async function savePushSubscription(sub, silent = false) {
   const json = sub.toJSON();
-  await _supabase.from('push_subscriptions').upsert([{
-    player_id: state.currentUserId,
-    endpoint: json.endpoint,
-    p256dh: json.keys.p256dh,
-    auth: json.keys.auth
+  const { error } = await _supabase.from('push_subscriptions').upsert([{
+    player_id: state.currentUserId, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth
   }], { onConflict: 'endpoint' });
+  if (error) {
+    console.error('Abonnement push non enregistré :', error);
+    if (!silent) alert("Abonnement non enregistré : " + error.message);
+    return false;
+  }
+  return true;
 }
 
 /* ---------- Authentification ---------- */
@@ -489,7 +525,7 @@ $('signupForm').onsubmit = async e => {
     const { data: created, error: e2 } = await _supabase.from('players')
       .insert([{ name, gender, fft_rank: fft, email, user_id: data.user.id, club_id: inviteClub.id }]).select().single();
     if (e2) return authMsg("Erreur de création du profil : " + e2.message);
-    state.myClub = inviteClub;
+    state.myClub = inviteClub; state.viewClub = inviteClub;
     await placeNewPlayer(created.id);
   }
 
@@ -504,33 +540,56 @@ async function enterApp(user) {
     return authMsg("Aucun profil joueur lié à ce compte. Utilisez le lien d'invitation de votre club.");
   }
   const { data: club } = await _supabase.from('clubs').select('*').eq('id', me.club_id).single();
-  state.myClub = club;
+  state.myClub = club;      // le club où JE joue (ne change jamais en naviguant)
+  state.viewClub = club;    // le club que je CONSULTE
+  state.me = me;
   state.currentUserId = me.id;
 
   const { data: sa } = await _supabase.from('super_admins').select('user_id').eq('user_id', user.id).maybeSingle();
   state.isSuperAdmin = !!sa;
+  if (state.isSuperAdmin) await loadAllClubs();
 
   await loadData();
+  seenNotifIds = new Set(state.notifications.map(n => n.id));
   $('authScreen').style.display = 'none';
   $('appRoot').style.display = 'block';
-  $('whoami').textContent = `👤 ${me.name} — ${club.name}${state.isSuperAdmin ? ' 👑' : ''}`;
-  updateView(); checkAdminAccess();
-  checkBrowserNotifications();
+  updateView(); checkAdminAccess(); renderViewClubSelector();
   setupPush();
 }
 
 async function logout() {
   await _supabase.auth.signOut();
-  state = { players: [], rawPlayers: [], matches: [], messages: [], generalChat: [], notifications: [], currentUserId: null, myClub: null, allClubs: [], isSuperAdmin: false };
+  state = { players: [], rawPlayers: [], matches: [], messages: [], generalChat: [], notifications: [], currentUserId: null, me: null, myClub: null, viewClub: null, allClubs: [], isSuperAdmin: false };
   admin = { clubId: null, club: null, rawPlayers: [], matches: [] };
+  pushActive = false;
   $('notifPanel').style.display = 'none';
   showAuth(); showLogin();
 }
 
-function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)); }
-function isAdmin() { const u = currentUser(); return !!u && u.role === 'admin'; }
+function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)) || state.me; }
+function isAdmin() { return !!state.me && state.me.role === 'admin'; }
 function checkAdminAccess() { $('adminTabBtn').style.display = (isAdmin() || state.isSuperAdmin) ? 'inline-block' : 'none'; }
 function getCurrentUserIndex() { return state.players.findIndex(p => same(p.id, state.currentUserId)); }
+
+/* ---------- Navigation entre clubs (super-admin) ---------- */
+function renderViewClubSelector() {
+  let label = `👤 ${state.me.name} — ${state.myClub.name}${state.isSuperAdmin ? ' 👑' : ''}`;
+  if (!same(state.viewClub.id, state.myClub.id)) label += ` · 👁️ vue : ${state.viewClub.name}`;
+  $('whoami').textContent = label;
+  const sel = $('viewClubSelect');
+  if (!state.isSuperAdmin) { sel.style.display = 'none'; return; }
+  sel.style.display = 'inline-block';
+  sel.innerHTML = state.allClubs.map(c =>
+    `<option value="${c.id}" ${same(c.id, state.viewClub.id) ? 'selected' : ''}>${esc(c.name)}${same(c.id, state.myClub.id) ? ' (mon club)' : ''}</option>`).join('');
+}
+async function switchViewClub(clubId) {
+  const club = state.allClubs.find(c => same(c.id, clubId));
+  if (!club) return;
+  state.viewClub = club;
+  admin.clubId = club.id;
+  await loadData(); updateView(); renderViewClubSelector();
+  if ($('adminTab').classList.contains('active')) await renderAdminDashboard();
+}
 
 /* ---------- Affichage ---------- */
 function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); renderNotifications(); }
@@ -600,12 +659,12 @@ async function proposeMatch(cIdx, dIdx) {
   const limit = new Date(); limit.setDate(limit.getDate() + 7);
   const { data: nm, error } = await _supabase.from('matches').insert([{
     challenger_id: p1.id, defender_id: p2.id, status: 'pending',
-    limit_date: limit.toISOString().split('T')[0], club_id: state.myClub.id
+    limit_date: limit.toISOString().split('T')[0], club_id: state.viewClub.id
   }]).select().single();
-  if (error) return alert('Erreur : ' + error.message);
-  await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système', club_id: state.myClub.id,
+  if (dbFail(error, 'création du défi')) return;
+  await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système', club_id: state.viewClub.id,
     text: `Défi proposé par ${p1.name}. Date limite : ${limit.toLocaleDateString('fr-FR')}.` }]);
-  await notify(state.myClub.id, p2.id, 'defi', `${p1.name} vous défie ! À jouer avant le ${limit.toLocaleDateString('fr-FR')}.`, nm.id);
+  await notify(state.viewClub.id, p2.id, 'defi', `${p1.name} vous défie ! À jouer avant le ${limit.toLocaleDateString('fr-FR')}.`, nm.id);
   await loadData(); updateView(); switchTab('matchesTab');
 }
 
@@ -619,7 +678,8 @@ async function sendGeneralMessage() {
   const input = $('generalChatInput'), text = input.value.trim();
   if (!text) return;
   const me = currentUser();
-  await _supabase.from('messages').insert([{ sender_name: me ? me.name : 'Anonyme', text, club_id: state.myClub.id }]);
+  const { error } = await _supabase.from('messages').insert([{ sender_name: me ? me.name : 'Anonyme', text, club_id: state.viewClub.id }]);
+  if (dbFail(error, "envoi du message")) return;
   input.value = '';
   await loadData(); renderGeneralChat();
 }
@@ -645,7 +705,7 @@ function renderMatches() {
     const isDef = me && same(me.id, m.defender_id);
     const isChal = me && same(me.id, m.challenger_id);
     const isParticipant = isDef || isChal;
-    const canModerate = me && (isParticipant || me.role === 'admin');
+    const canModerate = me && (isParticipant || isAdmin() || state.isSuperAdmin);
     let actions = '';
 
     if (m.status === 'pending') {
@@ -667,7 +727,9 @@ function renderMatches() {
         actions = `<p style="margin-top:10px;color:var(--pending-color)">Résultat saisi (victoire de ${winnerName}), validation automatique dans ${left} sans contestation.</p>`;
       }
     } else if (m.status === 'accepted' && isParticipant) {
-      actions = `<div style="margin-top:10px"><p style="margin-bottom:5px">Saisir le résultat :</p><div style="display:flex;gap:8px;flex-wrap:wrap">
+      actions = `<div style="margin-top:10px"><p style="margin-bottom:5px">Saisir le résultat :</p>
+        <input type="text" id="scoreInput-${m.id}" placeholder="Score (ex : 6-4 3-6 10-7)" style="margin-bottom:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p1.id}')">Victoire ${esc(p1.name)}</button>
         <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p2.id}')">Victoire ${esc(p2.name)}</button></div></div>`;
     }
@@ -696,46 +758,54 @@ async function sendMatchMessage(matchId) {
   if (!text) return;
   const me = currentUser();
   const m = state.matches.find(x => same(x.id, matchId));
-  await _supabase.from('messages').insert([{ match_id: matchId, sender_name: me.name, text, club_id: state.myClub.id }]);
-  const otherId = same(me.id, m.challenger_id) ? m.defender_id : m.challenger_id;
-  await notify(state.myClub.id, otherId, 'message', `${me.name} vous a envoyé un message privé.`, matchId);
+  const { error } = await _supabase.from('messages').insert([{ match_id: matchId, sender_name: me.name, text, club_id: state.viewClub.id }]);
+  if (dbFail(error, "envoi du message privé")) return;
+  const targets = same(me.id, m.challenger_id) ? [m.defender_id]
+                : same(me.id, m.defender_id) ? [m.challenger_id]
+                : [m.challenger_id, m.defender_id];
+  for (const t of targets) await notify(state.viewClub.id, t, 'message', `${me.name} vous a envoyé un message privé.`, matchId);
   input.value = '';
   await loadData(); updateView();
 }
 
 async function acceptMatch(id) {
-  await _supabase.from('matches').update({ status: 'accepted' }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'accepted' }).eq('id', id);
+  if (dbFail(error, "acceptation du défi")) return;
   await loadData(); updateView();
 }
 async function refuseMatch(id) {
   if (!confirm('Refuser ce défi vous fait perdre votre place. Confirmer ?')) return;
   const before = state.players;
   const m = state.matches.find(x => same(x.id, id));
-  await _supabase.from('matches').update({ status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString() }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString() }).eq('id', id);
+  if (dbFail(error, "refus du défi")) return;
   await loadData(); updateView();
-  await notifyPositionChanges(state.myClub.id, before, state.players);
+  await notifyPositionChanges(state.viewClub.id, before, state.players);
 }
 async function resolveMatch(id, winnerId) {
-  const score = prompt('Score (ex : 6-4 3-6 10-7) :');
-  if (score === null) return;
+  const input = $('scoreInput-' + id);
+  const score = input ? input.value.trim() : '';
   const me = currentUser();
   const m = state.matches.find(x => same(x.id, id));
-  await _supabase.from('matches').update({
+  const { error } = await _supabase.from('matches').update({
     status: 'pending_confirmation', winner_id: winnerId, score, played_at: new Date().toISOString(), proposed_by: me.id
   }).eq('id', id);
+  if (dbFail(error, "saisie du résultat")) return;
   const otherId = same(me.id, m.challenger_id) ? m.defender_id : m.challenger_id;
-  await notify(state.myClub.id, otherId, 'result', `${me.name} a saisi un résultat. Vous avez 1h pour le contester, sinon il sera validé automatiquement.`, id);
+  await notify(state.viewClub.id, otherId, 'result', `${me.name} a saisi un résultat. Vous avez 1h pour le contester, sinon il sera validé automatiquement.`, id);
   await loadData(); updateView();
 }
 async function confirmResult(id) {
   const before = state.players;
-  await _supabase.from('matches').update({ status: 'done' }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'done' }).eq('id', id);
+  if (dbFail(error, "confirmation du résultat")) return;
   await loadData(); updateView();
-  await notifyPositionChanges(state.myClub.id, before, state.players);
+  await notifyPositionChanges(state.viewClub.id, before, state.players);
 }
 async function disputeResult(id) {
   if (!confirm('Contester ce résultat ? Le match repassera en attente de saisie.')) return;
-  await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, proposed_by: null, played_at: null }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, proposed_by: null, played_at: null }).eq('id', id);
+  if (dbFail(error, "contestation du résultat")) return;
   await loadData(); updateView();
 }
 
@@ -778,24 +848,13 @@ async function refreshAdmin() {
   $('adminClubName').textContent = admin.club.name;
   $('inviteLinkOutput').value = inviteUrlFor(admin.club.invite_token);
   renderAdminPlayers(); renderAdminMatches(); renderAdminChat();
-  if (state.myClub && same(admin.clubId, state.myClub.id)) { await loadData(); updateView(); }
+  if (state.viewClub && same(admin.clubId, state.viewClub.id)) { await loadData(); updateView(); }
 }
-
-function renderClubSelector() {
-  const box = $('clubSwitchBox');
-  if (!state.isSuperAdmin) { box.style.display = 'none'; return; }
-  box.style.display = 'block';
-  $('adminClubSelect').innerHTML = state.allClubs.map(c =>
-    `<option value="${c.id}" ${same(c.id, admin.clubId) ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
-}
-async function adminChangeClub(clubId) { admin.clubId = clubId; await refreshAdmin(); renderClubSelector(); }
 
 async function renderAdminDashboard() {
   if (!isAdmin() && !state.isSuperAdmin) return;
   await loadAllClubs();
-  if (!admin.clubId) admin.clubId = (isAdmin() && state.myClub) ? state.myClub.id : (state.allClubs[0] && state.allClubs[0].id);
-  if (!admin.clubId) return;
-  renderClubSelector();
+  admin.clubId = state.viewClub.id;
   await refreshAdmin();
   renderClubsList();
 }
@@ -823,11 +882,11 @@ async function createClub() {
   const name = $('newClubName').value.trim();
   if (!name) return;
   const { data: created, error } = await _supabase.from('clubs').insert([{ name }]).select().single();
-  if (error) return alert('Erreur : ' + error.message);
+  if (dbFail(error, 'création du club')) return;
   $('newClubName').value = '';
   await loadAllClubs();
-  if (state.isSuperAdmin) { admin.clubId = created.id; await refreshAdmin(); }
-  renderClubSelector(); renderClubsList();
+  if (state.isSuperAdmin) await switchViewClub(created.id);
+  renderViewClubSelector(); renderClubsList();
 }
 
 function renderAdminPlayers() {
@@ -861,8 +920,14 @@ async function changePlayerClub(id, newClubId) {
   const p = admin.rawPlayers.find(x => same(x.id, id));
   if (same(p.club_id, newClubId)) return;
   const club = state.allClubs.find(c => same(c.id, newClubId));
-  if (!confirm(`Déplacer ${p.name} vers "${club.name}" ? Il sortira de la pyramide actuelle.`)) { renderAdminPlayers(); return; }
-  await _supabase.from('players').update({ club_id: newClubId, start_position: null }).eq('id', id);
+  const self = same(id, state.currentUserId);
+  const msg = self
+    ? `⚠️ Vous allez VOUS déplacer vous-même vers "${club.name}" et quitter cette pyramide.\n\nPour simplement consulter un autre club sans changer de place, utilisez le sélecteur en haut de la page.\n\nContinuer quand même ?`
+    : `Déplacer ${p.name} vers "${club.name}" ? Il sortira de la pyramide actuelle.`;
+  if (!confirm(msg)) { renderAdminPlayers(); return; }
+  const { error } = await _supabase.from('players').update({ club_id: newClubId, start_position: null }).eq('id', id);
+  if (dbFail(error, 'déplacement du joueur')) return;
+  if (self) { location.reload(); return; }
   await refreshAdmin();
 }
 async function deletePlayer(id) {
@@ -889,13 +954,15 @@ function renderAdminMatches() {
 async function adminSetWinner(id, winnerId) {
   const before = computePyramid(admin.rawPlayers, admin.matches);
   const m = admin.matches.find(x => same(x.id, id));
-  await _supabase.from('matches').update({ status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString() }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString() }).eq('id', id);
+  if (dbFail(error, "validation du résultat par l'admin")) return;
   await refreshAdmin();
   const after = computePyramid(admin.rawPlayers, admin.matches);
   await notifyPositionChanges(admin.clubId, before, after);
 }
 async function adminReopen(id) {
-  await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, proposed_by: null, played_at: null }).eq('id', id);
+  const { error } = await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, proposed_by: null, played_at: null }).eq('id', id);
+  if (dbFail(error, "réouverture du match")) return;
   await refreshAdmin();
 }
 async function adminDeleteMatch(id) {
@@ -935,11 +1002,16 @@ async function deleteChatMessage(id) {
 
 /* ---------- Démarrage ---------- */
 window.addEventListener('DOMContentLoaded', boot);
+function userIsTyping() {
+  const a = document.activeElement;
+  if (a && ['INPUT', 'SELECT', 'TEXTAREA'].includes(a.tagName)) return true;
+  return [...document.querySelectorAll('#matchesList input, #generalChatInput')].some(i => i.value);
+}
 setInterval(async () => {
   if (!state.currentUserId) return;
   await loadData();
   checkBrowserNotifications();
-  if (document.visibilityState === 'visible') { updateView(); }
+  if (document.visibilityState === 'visible' && !userIsTyping()) { updateView(); }
   else { renderNotifications(); }
 }, 15000);
 </script>
