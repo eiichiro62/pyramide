@@ -266,7 +266,7 @@ function sortByFFT(list) {
   return [...list].sort((a, b) => fftValue(b.fft_rank) - fftValue(a.fft_rank) || (a.name || '').localeCompare(b.name || ''));
 }
 
-function computePyramid(players, matches) {
+function computePyramid(players, matches, checkpoint) {
   const visible = players.filter(p => !p.is_hidden);
   const withPos = visible.filter(p => p.start_position != null).sort((a, b) => a.start_position - b.start_position);
   const noPos = sortByFFT(visible.filter(p => p.start_position == null));
@@ -274,13 +274,19 @@ function computePyramid(players, matches) {
   const startIdx = {}, stats = {};
   order.forEach((p, i) => { startIdx[p.id] = i; stats[p.id] = { played: 0, wins: 0, refusals: 0 }; });
 
-  const done = matches.filter(m => m.status === 'done' || m.status === 'forfeit')
+  const allDone = matches.filter(m => m.status === 'done' || m.status === 'forfeit')
     .sort((a, b) => new Date(a.played_at || a.created_at) - new Date(b.played_at || b.created_at));
 
-  for (const m of done) {
+  // Les statistiques comptent TOUT l'historique, même les matchs antérieurs à un repositionnement manuel
+  for (const m of allDone) {
     if (m.status === 'done') [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
     if (m.status === 'forfeit' && stats[m.defender_id]) stats[m.defender_id].refusals++;
     if (stats[m.winner_id]) stats[m.winner_id].wins++;
+  }
+
+  // Le glissement des positions ne rejoue que les matchs postérieurs au dernier repositionnement manuel de l'admin
+  const slideMatches = checkpoint ? allDone.filter(m => new Date(m.played_at || m.created_at) > new Date(checkpoint)) : allDone;
+  for (const m of slideMatches) {
     if (!same(m.winner_id, m.challenger_id)) continue;
     const c = order.findIndex(p => same(p.id, m.challenger_id));
     const d = order.findIndex(p => same(p.id, m.defender_id));
@@ -312,7 +318,7 @@ async function loadData() {
   state.matches = matches || [];
   state.messages = messages || [];
   state.generalChat = state.messages.filter(m => !m.match_id);
-  state.players = computePyramid(state.rawPlayers, state.matches);
+  state.players = computePyramid(state.rawPlayers, state.matches, state.viewClub.position_checkpoint);
 
   if (state.currentUserId) {
     const { data: notifs, error } = await _supabase.from('notifications').select('*')
@@ -968,6 +974,7 @@ function renderAdminPlayers() {
       <span style="font-size:.85em;color:var(--text-muted)">FFT : ${esc(p.fft_rank)} | ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}${p.role === 'admin' ? ' | 🔑 Admin' : ''}${blockInfo}</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="updateFFTRank('${p.id}')">FFT</button>
+      <button class="btn" onclick="movePlayerToPosition('${p.id}')">↕️ Déplacer</button>
       <button class="btn btn-warn" onclick="toggleVisibility('${p.id}')">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
       <button class="btn ${blocked ? 'btn-success' : 'btn-danger'}" onclick="toggleBlock('${p.id}')">${blocked ? 'Débloquer' : 'Bloquer'}</button>
       <select style="width:auto" onchange="changePlayerClub('${p.id}', this.value)">${clubOptions(p.club_id)}</select>
@@ -1040,12 +1047,12 @@ function renderAdminMatches() {
       <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button></div></div>`).join('');
 }
 async function adminSetWinner(id, winnerId) {
-  const before = computePyramid(admin.rawPlayers, admin.matches);
+  const before = computePyramid(admin.rawPlayers, admin.matches, admin.club.position_checkpoint);
   const m = admin.matches.find(x => same(x.id, id));
   const { error } = await _supabase.from('matches').update({ status: 'done', winner_id: winnerId, played_at: m.played_at || new Date().toISOString() }).eq('id', id);
   if (dbFail(error, "validation du résultat par l'admin")) return;
   await refreshAdmin();
-  const after = computePyramid(admin.rawPlayers, admin.matches);
+  const after = computePyramid(admin.rawPlayers, admin.matches, admin.club.position_checkpoint);
   await notifyPositionChanges(admin.clubId, before, after);
 }
 async function adminReopen(id) {
@@ -1060,10 +1067,43 @@ async function adminDeleteMatch(id) {
   await refreshAdmin();
 }
 async function adminRebuildStartPositions(ask = true) {
-  if (ask && !confirm("Remettre la pyramide de départ selon le classement FFT ?\n(Les résultats déjà saisis seront rejoués sur ce nouveau départ.)")) return;
+  if (ask && !confirm("Remettre la pyramide de départ selon le classement FFT ?\n(Seuls les nouveaux matchs feront à nouveau glisser les joueurs ; l'historique et les statistiques restent intacts.)")) return;
   const sorted = sortByFFT(admin.rawPlayers.filter(p => !p.is_hidden));
   await Promise.all(sorted.map((p, i) => _supabase.from('players').update({ start_position: i + 1 }).eq('id', p.id)));
+  await _supabase.from('clubs').update({ position_checkpoint: new Date().toISOString() }).eq('id', admin.clubId);
   await refreshAdmin();
+}
+
+async function movePlayerToPosition(id) {
+  const target = admin.rawPlayers.find(x => same(x.id, id));
+  const currentOrder = computePyramid(admin.rawPlayers, admin.matches, admin.club.position_checkpoint);
+  const maxPos = currentOrder.length;
+  const currentPos = currentOrder.findIndex(p => same(p.id, id)) + 1;
+  const input = prompt(`Nouvelle position de ${target.name} dans la pyramide (1 à ${maxPos}) :`, String(currentPos));
+  if (input === null) return;
+  const newPos = parseInt(input, 10);
+  if (!Number.isInteger(newPos) || newPos < 1 || newPos > maxPos) return alert('Position invalide.');
+  if (newPos === currentPos) return;
+  if (!confirm(`Déplacer ${target.name} de la position #${currentPos} à la position #${newPos} ?\n\nTous les joueurs entre les deux seront décalés d'un rang. L'historique des matchs et les statistiques ne sont pas modifiés.`)) return;
+
+  const order = currentOrder.map(p => p.id);
+  order.splice(currentPos - 1, 1);
+  order.splice(newPos - 1, 0, id);
+
+  const { error: e1 } = await (async () => {
+    for (const [i, pid] of order.entries()) {
+      const { error } = await _supabase.from('players').update({ start_position: i + 1 }).eq('id', pid);
+      if (error) return { error };
+    }
+    return { error: null };
+  })();
+  if (dbFail(e1, 'repositionnement du joueur')) return;
+
+  const { error: e2 } = await _supabase.from('clubs').update({ position_checkpoint: new Date().toISOString() }).eq('id', admin.clubId);
+  if (dbFail(e2, 'enregistrement du repère de repositionnement')) return;
+
+  await refreshAdmin();
+  alert(`${target.name} est maintenant à la position #${newPos}.`);
 }
 async function adminResetSeason() {
   if (!confirm('Supprimer TOUS les matchs de ce club et repartir du classement FFT ?')) return;
