@@ -24,8 +24,9 @@ h1{margin-bottom:5px;color:#38bdf8}
 .rules-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:25px;text-align:left}
 .rule-card{background:var(--card-bg);border:1px solid var(--bd);border-left:4px solid var(--accent-color);padding:12px;border-radius:8px;font-size:.85rem}
 .rule-card h4{color:#38bdf8;margin-bottom:4px;font-size:.9rem}
-.pyramid-container{display:flex;flex-direction:column;align-items:center;gap:12px;margin:20px 0;overflow-x:auto;overflow-y:hidden;padding:10px 10px 20px;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
-.pyramid-row{display:flex;justify-content:center;gap:10px;width:max-content;margin:0 auto}
+.pyramid-container{overflow-x:auto;overflow-y:hidden;margin:20px 0;padding:10px 0 25px;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+.pyramid-inner{display:flex;flex-direction:column;align-items:center;gap:12px;width:max-content;margin:0 auto}
+.pyramid-row{display:flex;justify-content:center;gap:10px}
 .player-card{background:var(--card-bg);border:2px solid var(--bd);border-radius:8px;padding:8px;width:130px;flex-shrink:0;min-height:75px;display:flex;flex-direction:column;justify-content:center;align-items:center;cursor:pointer;transition:.2s;position:relative}
 .player-card:hover{transform:translateY(-3px);border-color:var(--accent-color)}
 .player-card .rank{position:absolute;top:4px;left:6px;font-size:.75rem;color:var(--text-muted);font-weight:bold}
@@ -36,6 +37,8 @@ h1{margin-bottom:5px;color:#38bdf8}
 .player-card.eligible{border-color:var(--target-color);background:#2d2a1e;animation:pulse 1.5s infinite}
 .player-card.busy{border-color:var(--busy-color);opacity:.8}
 .player-card.busy::after{content:'EN MATCH';position:absolute;bottom:2px;font-size:.6rem;color:var(--busy-color);font-weight:bold}
+.player-card.blocked{border-color:#a855f7;background:#241a33;opacity:.85}
+.player-card.blocked::after{content:'INDISPONIBLE';position:absolute;bottom:2px;font-size:.6rem;color:#a855f7;font-weight:bold}
 .player-card.disqualified{border-color:#64748b;background:var(--bg-color);opacity:.4;cursor:not-allowed}
 .player-card.disqualified::after{content:'DISQUALIFIÉ';position:absolute;bottom:2px;font-size:.6rem;color:var(--busy-color);font-weight:bold}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(234,179,8,.4)}70%{box-shadow:0 0 0 10px rgba(234,179,8,0)}100%{box-shadow:0 0 0 0 rgba(234,179,8,0)}}
@@ -149,7 +152,7 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
       <div class="rule-card"><h4>✅ Résultat</h4>Un joueur saisit le score. L'autre a <b>1h</b> pour contester, sinon c'est validé automatiquement.</div>
     </div>
     <p style="color:var(--text-muted);font-size:.8rem;margin-bottom:10px">↔️ Glissez horizontalement pour voir toute la pyramide</p>
-    <div id="pyramidDisplay" class="pyramid-container"></div>
+    <div id="pyramidDisplay" class="pyramid-container"><div id="pyramidInner" class="pyramid-inner"></div></div>
     <div class="honors-banner">
       <div class="honor-item">🥇 Leader actuel <span id="honorFirst">-</span></div>
       <div class="honor-item">🚀 Meilleure Progression <span id="honorProgression">-</span></div>
@@ -179,6 +182,9 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
       <thead><tr><th>Pos.</th><th>Joueur</th><th>Sexe</th><th>FFT</th><th>Matchs</th><th>Victoires</th><th>Refus</th><th>Statut</th></tr></thead>
       <tbody id="statsTableBody"></tbody>
     </table>
+
+    <h2 style="margin-top:25px">Historique des matchs</h2>
+    <div id="matchHistoryList" style="margin-top:10px"></div>
   </div>
 
   <div id="adminTab" class="tab-content">
@@ -222,7 +228,9 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
 const SUPABASE_URL = "https://nzlathoksbeghfhigfav.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bGF0aG9rc2JlZ2hmaGlnZmF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMTY2OTksImV4cCI6MjEwNTU5MjY5OX0.ULm9jKTW3NvTn-BNQjVGFwmm_LnkDqK4OeFYhp1TQ34";
 const VAPID_PUBLIC_KEY = "BF5cU8ajmSZnPP6JKu-6uPvZY8sn9uCmOeFFHo6WC7ffSkMOqpFidC44z6oHwkBmRP7-E-bTLGc1WRF_cg0Xl9M";
-const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+});
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -233,6 +241,12 @@ function dbFail(error, ctx) {
   alert(`Erreur — ${ctx} :\n${error.message}`);
   return true;
 }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function isBlocked(p) {
+  if (!p || p.status !== 'blocked') return false;
+  if (!p.status_until) return true;
+  return p.status_until >= todayISO();
+}
 const FFT_ORDER = ["NC","40","30/5","30/4","30/3","30/2","30/1","30","15/5","15/4","15/3","15/2","15/1","15","5/6","4/6","3/6","2/6","1/6","0","-2/6","-4/6","-15","N1"];
 const SIGNUP_RANKS = FFT_ORDER.slice(0, 13);
 
@@ -241,6 +255,7 @@ let admin = { clubId: null, club: null, rawPlayers: [], matches: [] };
 let inviteClub = null;
 let seenNotifIds = new Set();
 let pushActive = false;
+let pyramidCentered = false;
 
 /* ---------- Pyramide ---------- */
 function fftValue(r) {
@@ -299,7 +314,6 @@ async function loadData() {
   state.generalChat = state.messages.filter(m => !m.match_id);
   state.players = computePyramid(state.rawPlayers, state.matches);
 
-  // Mes notifications : liées à mon profil, quel que soit le club affiché
   if (state.currentUserId) {
     const { data: notifs, error } = await _supabase.from('notifications').select('*')
       .eq('player_id', state.currentUserId)
@@ -369,7 +383,6 @@ async function markAllNotifsRead() {
 async function checkBrowserNotifications() {
   const fresh = state.notifications.filter(n => !n.is_read && !seenNotifIds.has(n.id));
   seenNotifIds = new Set(state.notifications.map(n => n.id));
-  // Si le push est actif, c'est lui qui affiche l'alerte : on évite le doublon
   if (pushActive || !('Notification' in window) || Notification.permission !== 'granted') return;
   for (const n of fresh) {
     try {
@@ -401,7 +414,7 @@ function urlBase64ToUint8Array(base64String) {
 
 async function setupPush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    $('pushBtn').style.display = 'inline-block';   // le clic expliquera quoi faire (ex. iPhone)
+    $('pushBtn').style.display = 'inline-block';
     return;
   }
   try {
@@ -471,11 +484,23 @@ async function boot() {
     }
   }
 
-  _supabase.auth.onAuthStateChange((event) => {
-    if (event === 'PASSWORD_RECOVERY') { showAuth(); showReset(); }
+  // Gestion événementielle de la session : couvre la récupération de mot de passe,
+  // la déconnexion (ex. jeton invalidé ailleurs) et une reconnexion arrivant après coup.
+  _supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') { showAuth(); showReset(); return; }
+    if (event === 'SIGNED_OUT') { showAuth(); showLogin(); return; }
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session
+        && $('appRoot').style.display === 'none' && !location.hash.includes('type=recovery')) {
+      enterApp(session.user);
+    }
   });
 
-  const { data: { session } } = await _supabase.auth.getSession();
+  let { data: { session } } = await _supabase.auth.getSession();
+  if (!session) {
+    // Filet de sécurité : si le jeton d'accès a expiré mais qu'un jeton de
+    // rafraîchissement valide existe encore, on retente avant d'abandonner.
+    try { const r = await _supabase.auth.refreshSession(); session = r.data.session; } catch (e) { /* pas grave */ }
+  }
   if (session && !location.hash.includes('type=recovery')) await enterApp(session.user);
   else showAuth();
 }
@@ -540,8 +565,8 @@ async function enterApp(user) {
     return authMsg("Aucun profil joueur lié à ce compte. Utilisez le lien d'invitation de votre club.");
   }
   const { data: club } = await _supabase.from('clubs').select('*').eq('id', me.club_id).single();
-  state.myClub = club;      // le club où JE joue (ne change jamais en naviguant)
-  state.viewClub = club;    // le club que je CONSULTE
+  state.myClub = club;
+  state.viewClub = club;
   state.me = me;
   state.currentUserId = me.id;
 
@@ -562,6 +587,7 @@ async function logout() {
   state = { players: [], rawPlayers: [], matches: [], messages: [], generalChat: [], notifications: [], currentUserId: null, me: null, myClub: null, viewClub: null, allClubs: [], isSuperAdmin: false };
   admin = { clubId: null, club: null, rawPlayers: [], matches: [] };
   pushActive = false;
+  pyramidCentered = false;
   $('notifPanel').style.display = 'none';
   showAuth(); showLogin();
 }
@@ -587,12 +613,13 @@ async function switchViewClub(clubId) {
   if (!club) return;
   state.viewClub = club;
   admin.clubId = club.id;
+  pyramidCentered = false;
   await loadData(); updateView(); renderViewClubSelector();
   if ($('adminTab').classList.contains('active')) await renderAdminDashboard();
 }
 
 /* ---------- Affichage ---------- */
-function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); renderNotifications(); }
+function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); renderNotifications(); renderHistory(); }
 
 function switchTab(id) {
   document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
@@ -614,12 +641,20 @@ function isEligibleToChallenge(targetIndex) {
   if (myIdx === -1) return false;
   const me = state.players[myIdx], target = state.players[targetIndex];
   if (me.is_busy || me.is_disqualified || target.is_busy || target.is_disqualified) return false;
+  if (isBlocked(target)) return false;
   const diff = myIdx - targetIndex;
   return diff > 0 && diff <= getRowAndRange(myIdx).maxChallengesAllowed;
 }
 
+function centerPyramidView() {
+  const outer = $('pyramidDisplay');
+  requestAnimationFrame(() => {
+    outer.scrollLeft = (outer.scrollWidth - outer.clientWidth) / 2;
+  });
+}
+
 function renderPyramid() {
-  const container = $('pyramidDisplay');
+  const container = $('pyramidInner');
   container.innerHTML = '';
   let idx = 0, rowSize = 1;
   const myIdx = getCurrentUserIndex();
@@ -632,6 +667,7 @@ function renderPyramid() {
       card.className = 'player-card';
       if (pIdx === myIdx) card.classList.add('is-me');
       if (player.is_disqualified) card.classList.add('disqualified');
+      else if (isBlocked(player)) card.classList.add('blocked');
       else if (player.is_busy) card.classList.add('busy');
       else if (isEligibleToChallenge(pIdx)) card.classList.add('eligible');
       card.innerHTML = `<span class="rank">#${pIdx + 1}</span><span class="gender-icon">${player.gender === 'F' ? '👩' : '👨'}</span>
@@ -642,11 +678,18 @@ function renderPyramid() {
     container.appendChild(rowDiv);
     rowSize++;
   }
+  if (!pyramidCentered) { pyramidCentered = true; centerPyramidView(); }
 }
 
 function handlePlayerClick(index) {
   const myIdx = getCurrentUserIndex();
   if (index === myIdx || myIdx === -1) return;
+  const target = state.players[index];
+  if (isBlocked(target)) {
+    const untilTxt = target.status_until ? ` jusqu'au ${new Date(target.status_until).toLocaleDateString('fr-FR')}` : ' (durée indéterminée)';
+    alert(`${target.name} est actuellement indisponible${target.status_reason ? ' : ' + target.status_reason : ''}${untilTxt}.\nVous ne pouvez pas le/la défier pour le moment.`);
+    return;
+  }
   if (isEligibleToChallenge(index)) {
     if (confirm(`Défier ${state.players[index].name} ?`)) proposeMatch(myIdx, index);
   } else {
@@ -813,7 +856,7 @@ async function disputeResult(id) {
 function renderStats() {
   $('statsTableBody').innerHTML = state.players.map((p, i) => `<tr><td><b>#${i + 1}</b></td><td>${esc(p.name)}</td>
     <td>${p.gender === 'F' ? '👩 Femme' : '👨 Homme'}</td><td>${esc(p.fft_rank)}</td><td>${p.matches_played}</td><td>${p.wins}</td>
-    <td>${p.refusals}/5</td><td>${p.is_disqualified ? '❌ Disqualifié' : '✅ Actif'}</td></tr>`).join('');
+    <td>${p.refusals}/5</td><td>${p.is_disqualified ? '❌ Disqualifié' : isBlocked(p) ? '⛔ Indisponible' : '✅ Actif'}</td></tr>`).join('');
 }
 function updateHonors() {
   const P = state.players;
@@ -823,6 +866,28 @@ function updateHonors() {
   $('honorProgression').textContent = bp.progress > 0 ? `${bp.name} (+${bp.progress})` : '-';
   const bm = [...P].sort((a, b) => b.matches_played - a.matches_played)[0];
   $('honorMostMatches').textContent = bm.matches_played > 0 ? `${bm.name} (${bm.matches_played})` : '-';
+}
+
+function renderHistory() {
+  const box = $('matchHistoryList');
+  if (!box) return;
+  const past = [...state.matches].filter(m => m.status === 'done' || m.status === 'forfeit')
+    .sort((a, b) => new Date(b.played_at || b.created_at) - new Date(a.played_at || a.created_at));
+  if (!past.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match joué pour l\'instant.</p>'; return; }
+  box.innerHTML = past.map(m => {
+    const p1 = state.rawPlayers.find(p => same(p.id, m.challenger_id));
+    const p2 = state.rawPlayers.find(p => same(p.id, m.defender_id));
+    const winner = state.rawPlayers.find(p => same(p.id, m.winner_id));
+    const date = m.played_at ? new Date(m.played_at).toLocaleDateString('fr-FR') : '';
+    const label = m.status === 'forfeit' ? 'forfait' : (m.score ? esc(m.score) : 'score non renseigné');
+    return `<div class="row" style="flex-direction:column;align-items:flex-start;gap:2px">
+      <div style="display:flex;justify-content:space-between;width:100%">
+        <span>${esc(p1 ? p1.name : '?')} vs ${esc(p2 ? p2.name : '?')}</span>
+        <span style="font-size:.8rem;color:var(--text-muted)">${date}</span>
+      </div>
+      <span style="font-size:.85rem;color:var(--active-color)">🏆 ${esc(winner ? winner.name : '?')} — ${label}</span>
+    </div>`;
+  }).join('');
 }
 
 /* ---------- Admin ---------- */
@@ -893,14 +958,37 @@ function renderAdminPlayers() {
   const box = $('adminPlayersList');
   if (!admin.rawPlayers.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun joueur.</p>'; return; }
   const clubOptions = c => state.allClubs.map(cl => `<option value="${cl.id}" ${same(cl.id, c) ? 'selected' : ''}>${esc(cl.name)}</option>`).join('');
-  box.innerHTML = admin.rawPlayers.map(p => `<div class="row">
+  box.innerHTML = admin.rawPlayers.map(p => {
+    const blocked = isBlocked(p);
+    const blockInfo = blocked
+      ? ` | ⛔ ${esc(p.status_reason || 'Indisponible')}${p.status_until ? ' jusqu\'au ' + new Date(p.status_until).toLocaleDateString('fr-FR') : ' (durée indéterminée)'}`
+      : '';
+    return `<div class="row">
     <div style="text-align:left"><strong>${esc(p.name)}</strong> (${esc(p.email || 'sans email')})<br>
-      <span style="font-size:.85em;color:var(--text-muted)">FFT : ${esc(p.fft_rank)} | ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}${p.role === 'admin' ? ' | 🔑 Admin' : ''}</span></div>
+      <span style="font-size:.85em;color:var(--text-muted)">FFT : ${esc(p.fft_rank)} | ${p.is_hidden ? '🙈 Masqué' : '👁️ Visible'}${p.role === 'admin' ? ' | 🔑 Admin' : ''}${blockInfo}</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="updateFFTRank('${p.id}')">FFT</button>
       <button class="btn btn-warn" onclick="toggleVisibility('${p.id}')">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
+      <button class="btn ${blocked ? 'btn-success' : 'btn-danger'}" onclick="toggleBlock('${p.id}')">${blocked ? 'Débloquer' : 'Bloquer'}</button>
       <select style="width:auto" onchange="changePlayerClub('${p.id}', this.value)">${clubOptions(p.club_id)}</select>
-      <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">Supprimer</button></div></div>`).join('');
+      <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">Supprimer</button></div></div>`;
+  }).join('');
+}
+async function toggleBlock(id) {
+  const p = admin.rawPlayers.find(x => same(x.id, id));
+  if (isBlocked(p)) {
+    const { error } = await _supabase.from('players').update({ status: 'available', status_until: null, status_reason: null }).eq('id', id);
+    if (dbFail(error, 'déblocage du joueur')) return;
+  } else {
+    const reason = prompt('Raison du blocage (ex : Blessure, Vacances) :', 'Blessure');
+    if (reason === null) return;
+    const until = prompt("Jusqu'à quelle date ce joueur est-il indisponible ? (AAAA-MM-JJ, laissez vide pour une durée indéterminée) :", '');
+    const { error } = await _supabase.from('players').update({
+      status: 'blocked', status_reason: reason.trim() || null, status_until: until.trim() || null
+    }).eq('id', id);
+    if (dbFail(error, 'blocage du joueur')) return;
+  }
+  await refreshAdmin();
 }
 async function updateFFTRank(id) {
   const p = admin.rawPlayers.find(x => same(x.id, id));
