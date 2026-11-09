@@ -321,10 +321,20 @@ function computePyramid(players, matches, checkpoint) {
 }
 
 async function loadData() {
+  // Filet de sécurité anti-plantage si viewClub n'est pas encore défini
+  if (!state.viewClub || !state.viewClub.id) {
+    if (state.me && state.me.club_id) {
+      const { data: c } = await _supabase.from('clubs').select('*').eq('id', state.me.club_id).maybeSingle();
+      if (c) state.viewClub = c;
+    }
+    if (!state.viewClub || !state.viewClub.id) return; // On attend que le club soit chargé
+  }
+
   const clubId = state.viewClub.id;
   const { data: players, error: e1 } = await _supabase.from('players').select('*').eq('club_id', clubId);
   const { data: matches, error: e2 } = await _supabase.from('matches').select('*').eq('club_id', clubId);
   const { data: messages, error: e3 } = await _supabase.from('messages').select('*').eq('club_id', clubId);
+  
   if (e1 || e2 || e3) console.error('Chargement des données :', e1 || e2 || e3);
   state.rawPlayers = players || [];
   state.matches = matches || [];
@@ -357,60 +367,6 @@ async function placeNewPlayer(id) {
   }
   await loadData();
 }
-
-/* ---------- Notifications (en app) ---------- */
-async function notify(clubId, playerId, type, text, matchId = null) {
-  if (!playerId) return;
-  const { error } = await _supabase.from('notifications').insert([{ club_id: clubId, player_id: playerId, type, text, match_id: matchId }]);
-  if (error) console.error('Notification non créée :', error.message);
-}
-
-async function notifyPositionChanges(clubId, beforePlayers, afterPlayers) {
-  const beforeIdx = {};
-  beforePlayers.forEach((p, i) => beforeIdx[p.id] = i);
-  for (let i = 0; i < afterPlayers.length; i++) {
-    const p = afterPlayers[i];
-    const prev = beforeIdx[p.id];
-    if (prev !== undefined && i > prev) {
-      const n = i - prev;
-      await notify(clubId, p.id, 'position', `Vous avez perdu ${n > 1 ? n + ' places' : 'une place'} : vous êtes maintenant #${i + 1}.`);
-    }
-  }
-}
-
-function renderNotifications() {
-  const unread = state.notifications.filter(n => !n.is_read).length;
-  const badge = $('notifBadge');
-  badge.style.display = unread > 0 ? 'inline-block' : 'none';
-  badge.textContent = unread;
-  $('notifList').innerHTML = state.notifications.length
-    ? state.notifications.map(n => `<div class="row" style="cursor:pointer" onclick="markNotifRead('${n.id}')">
-        <span style="${n.is_read ? 'color:var(--text-muted)' : 'font-weight:bold'}">${esc(n.text)}</span></div>`).join('')
-    : '<p style="color:var(--text-muted);padding:10px 0">Aucune notification.</p>';
-}
-function toggleNotifPanel() { const p = $('notifPanel'); p.style.display = p.style.display === 'block' ? 'none' : 'block'; }
-async function markNotifRead(id) {
-  await _supabase.from('notifications').update({ is_read: true }).eq('id', id);
-  await loadData(); renderNotifications();
-}
-async function markAllNotifsRead() {
-  const ids = state.notifications.filter(n => !n.is_read).map(n => n.id);
-  if (ids.length) await _supabase.from('notifications').update({ is_read: true }).in('id', ids);
-  await loadData(); renderNotifications();
-}
-async function checkBrowserNotifications() {
-  const fresh = state.notifications.filter(n => !n.is_read && !seenNotifIds.has(n.id));
-  seenNotifIds = new Set(state.notifications.map(n => n.id));
-  if (pushActive || !('Notification' in window) || Notification.permission !== 'granted') return;
-  for (const n of fresh) {
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg) await reg.showNotification('🎾 Pyramide du Club', { body: n.text, icon: 'logo.png' });
-      else new Notification('🎾 Pyramide du Club', { body: n.text });
-    } catch (e) { console.error(e); }
-  }
-}
-
 async function sendTestNotification() {
   const { error } = await _supabase.from('notifications').insert([{
     club_id: state.myClub.id, player_id: state.currentUserId, type: 'test', text: '🧪 Notification de test : tout fonctionne !'
