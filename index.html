@@ -556,11 +556,13 @@ async function enterApp(user) {
   state.isSuperAdmin = !!sa;
   if (state.isSuperAdmin) await loadAllClubs();
 
- $('authScreen').style.display = 'none';
+  $('authScreen').style.display = 'none';
   $('appRoot').style.display = 'block';
   await loadData();
   seenNotifIds = new Set(state.notifications.map(n => n.id));
-  updateView(); checkAdminAccess(); renderViewClubSelector();
+  updateView(); 
+  checkAdminAccess(); // <--- Vérifie bien que cette ligne est présente ici
+  renderViewClubSelector();
   setupPush();
 }
 
@@ -575,14 +577,16 @@ async function logout() {
 }
 
 function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)) || state.me; }
-function isAdmin() { return !!state.me && state.me.role === 'admin'; }
+function isAdmin() { 
+  return !!state.me && (state.me.role === 'admin' || state.me.is_admin === true); 
+}
+
 function checkAdminAccess() {
   const btn = $('adminTabBtn');
   if (!btn) return;
   
-  // Sécurité : on vérifie si la fonction isAdmin existe, sinon on teste directement le profil
-  const userIsAdmin = (typeof isAdmin === 'function') ? isAdmin() : (state.me && (state.me.is_admin || state.me.role === 'admin'));
-  
+  // On vérifie si l'utilisateur est admin ou super-admin avec une sécurité sur l'objet state.me
+  const userIsAdmin = isAdmin() || (state.me && (state.me.role === 'admin' || state.me.is_admin));
   btn.style.display = (userIsAdmin || state.isSuperAdmin) ? 'inline-block' : 'none';
 }
 function getCurrentUserIndex() { return state.players.findIndex(p => same(p.id, state.currentUserId)); }
