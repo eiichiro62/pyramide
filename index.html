@@ -600,10 +600,10 @@ async function enterApp(user) {
   state.isSuperAdmin = !!sa;
   if (state.isSuperAdmin) await loadAllClubs();
 
+ $('authScreen').style.display = 'none';
+  $('appRoot').style.display = 'block';
   await loadData();
   seenNotifIds = new Set(state.notifications.map(n => n.id));
-  $('authScreen').style.display = 'none';
-  $('appRoot').style.display = 'block';
   updateView(); checkAdminAccess(); renderViewClubSelector();
   setupPush();
 }
@@ -736,7 +736,6 @@ async function switchTab(id) {
   if (b) b.classList.add('active');
   
   if (id === 'adminTab') {
-    // On recharge les données pour être sûr d'avoir la liste à jour
     await loadData();
     renderAdminMatches();
     renderAdminPlayers();
