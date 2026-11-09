@@ -646,15 +646,100 @@ async function switchViewClub(clubId) {
 
 /* ---------- Affichage ---------- */
 function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); renderNotifications(); renderHistory(); }
+// --- Rendu de la gestion des Joueurs dans l'Admin ---
+function renderAdminPlayers() {
+  const container = $('adminPlayersList');
+  if (!container) return;
+  if (!state.rawPlayers || !state.rawPlayers.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Aucun joueur inscrit.</p>';
+    return;
+  }
 
+  container.innerHTML = state.rawPlayers.map(p => `
+    <div class="row">
+      <div>
+        <b>${esc(p.name)}</b> (${esc(p.gender || 'H')}, FFT: ${esc(p.fft_rank || 'NC')})
+        ${p.is_disqualified ? ' <span style="color:var(--busy-color);font-weight:bold">[DISQUALIFIÉ]</span>' : ''}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn ${p.is_disqualified ? 'btn-success' : 'btn-warn'}" onclick="toggleDisqualify('${p.id}', ${!p.is_disqualified})">
+          ${p.is_disqualified ? 'Réintégrer' : 'Disqualifier'}
+        </button>
+        <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">🗑️ Supprimer</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// --- Action : Disqualifier ou réintégrer un joueur ---
+async function toggleDisqualify(playerId, status) {
+  const { error } = await _supabase.from('players').update({ is_disqualified: status }).eq('id', playerId);
+  if (dbFail(error, 'Modification du statut du joueur')) return;
+  await loadData();
+  renderAdminPlayers();
+}
+
+// --- Action : Supprimer un joueur ---
+async function deletePlayer(playerId) {
+  if (!confirm("Voulez-vous vraiment supprimer ce joueur ? Cette action est irréversible.")) return;
+  const { error } = await _supabase.from('players').delete().eq('id', playerId);
+  if (dbFail(error, 'Suppression du joueur')) return;
+  await loadData();
+  renderAdminPlayers();
+}
+
+// --- Rendu de la modération du Chat dans l'Admin ---
+function renderAdminChat() {
+  const container = $('adminChatList');
+  if (!container) return;
+  if (!state.generalChat || !state.generalChat.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Aucun message dans le chat.</p>';
+    return;
+  }
+
+  const recentMsgs = [...state.generalChat].reverse().slice(0, 20);
+  container.innerHTML = recentMsgs.map(m => {
+    const sender = state.rawPlayers.find(p => same(p.id, m.sender_id))?.name || 'Inconnu';
+    return `
+      <div class="row">
+        <span><b>${esc(sender)}</b> : ${esc(m.content)}</span>
+        <button class="btn btn-danger" onclick="deleteChatMessage('${m.id}')">🗑️ Supprimer</button>
+      </div>
+    `;
+  }).join('');
+}
+
+// --- Action : Supprimer un message du chat ---
+async function deleteChatMessage(msgId) {
+  const { error } = await _supabase.from('messages').delete().eq('id', msgId);
+  if (dbFail(error, 'Suppression du message')) return;
+  await loadData();
+  renderAdminChat();
+}
+
+// --- Rendu de la liste des Clubs (pour super-admin) ---
+function renderAdminClubs() {
+  const container = $('clubsList');
+  if (!container || !state.allClubs) return;
+  container.innerHTML = state.allClubs.map(c => `
+    <div class="row">
+      <span><b>${esc(c.name)}</b></span>
+      ${c.id === state.viewClub.id ? '<span style="color:var(--active-color)">Club actuel</span>' : ''}
+    </div>
+  `).join('');
+}
 function switchTab(id) {
   document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
   $(id).classList.add('active');
   const b = document.querySelector(`.tab-btn[onclick*="'${id}'"]`);
   if (b) b.classList.add('active');
+  
   if (id === 'adminTab') {
     renderAdminMatches();
+    renderAdminPlayers();
+    renderAdminChat();
+    renderAdminClubs();
   }
 }
 
