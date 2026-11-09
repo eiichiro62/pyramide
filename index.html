@@ -274,17 +274,29 @@ function computePyramid(players, matches, checkpoint) {
   const startIdx = {}, stats = {};
   order.forEach((p, i) => { startIdx[p.id] = i; stats[p.id] = { played: 0, wins: 0, refusals: 0 }; });
 
+  const now = new Date();
+
+  // Vérification automatique des défis expirés (> 3 jours sans réponse)
+  matches.forEach(m => {
+    if (m.status === 'pending' && m.created_at) {
+      const created = new Date(m.created_at);
+      const diffDays = (now - created) / (1000 * 60 * 60 * 24);
+      if (diffDays > 3) {
+        m.status = 'forfeit';
+        m.winner_id = m.challenger_id;
+      }
+    }
+  });
+
   const allDone = matches.filter(m => m.status === 'done' || m.status === 'forfeit')
     .sort((a, b) => new Date(a.played_at || a.created_at) - new Date(b.played_at || b.created_at));
 
-  // Les statistiques comptent TOUT l'historique, même les matchs antérieurs à un repositionnement manuel
   for (const m of allDone) {
     if (m.status === 'done') [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
     if (m.status === 'forfeit' && stats[m.defender_id]) stats[m.defender_id].refusals++;
     if (stats[m.winner_id]) stats[m.winner_id].wins++;
   }
 
-  // Le glissement des positions ne rejoue que les matchs postérieurs au dernier repositionnement manuel de l'admin
   const slideMatches = checkpoint ? allDone.filter(m => new Date(m.played_at || m.created_at) > new Date(checkpoint)) : allDone;
   for (const m of slideMatches) {
     if (!same(m.winner_id, m.challenger_id)) continue;
@@ -493,7 +505,11 @@ async function boot() {
   // Gestion événementielle de la session : couvre la récupération de mot de passe,
   // la déconnexion (ex. jeton invalidé ailleurs) et une reconnexion arrivant après coup.
   _supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') { showAuth(); showReset(); return; }
+    if (event === 'PASSWORD_RECOVERY' || location.hash.includes('type=recovery')) { 
+      showAuth(); 
+      showReset(); 
+      return; 
+    }
     if (event === 'SIGNED_OUT') { showAuth(); showLogin(); return; }
     if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session
         && $('appRoot').style.display === 'none' && !location.hash.includes('type=recovery')) {
@@ -501,14 +517,17 @@ async function boot() {
     }
   });
 
-  let { data: { session } } = await _supabase.auth.getSession();
-  if (!session) {
-    // Filet de sécurité : si le jeton d'accès a expiré mais qu'un jeton de
-    // rafraîchissement valide existe encore, on retente avant d'abandonner.
-    try { const r = await _supabase.auth.refreshSession(); session = r.data.session; } catch (e) { /* pas grave */ }
+  if (location.hash.includes('type=recovery')) {
+    showAuth();
+    showReset();
+  } else {
+    let { data: { session } } = await _supabase.auth.getSession();
+    if (!session) {
+      try { const r = await _supabase.auth.refreshSession(); session = r.data.session; } catch (e) { /* pas grave */ }
+    }
+    if (session) await enterApp(session.user);
+    else showAuth();
   }
-  if (session && !location.hash.includes('type=recovery')) await enterApp(session.user);
-  else showAuth();
 }
 
 $('loginForm').onsubmit = async e => {
@@ -522,7 +541,8 @@ $('loginForm').onsubmit = async e => {
 $('forgotForm').onsubmit = async e => {
   e.preventDefault(); authMsg('');
   const email = $('forgotEmail').value.trim();
-  const { error } = await _supabase.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  const redirectUrl = window.location.origin + window.location.pathname;
+  const { error } = await _supabase.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
   if (error) return authMsg(error.message);
   authMsg('Email envoyé ! Vérifiez votre boîte de réception (et les spams) puis cliquez sur le lien reçu.');
 };
@@ -633,7 +653,9 @@ function switchTab(id) {
   $(id).classList.add('active');
   const b = document.querySelector(`.tab-btn[onclick*="'${id}'"]`);
   if (b) b.classList.add('active');
-  if (id === 'adminTab') renderAdminDashboard();
+  if (id === 'adminTab') {
+    renderAdminMatches();
+  }
 }
 
 function getRowAndRange(index) {
@@ -1142,6 +1164,45 @@ setInterval(async () => {
   if (document.visibilityState === 'visible' && !userIsTyping()) { updateView(); }
   else { renderNotifications(); }
 }, 15000);
+function renderAdminMatches() {
+  if (!state.matches) return;
+  const pending = state.matches.filter(m => m.status === 'pending' || m.status === 'accepted' || m.status === 'pending_confirmation');
+  const doneUnreported = state.matches.filter(m => (m.status === 'done' || m.status === 'forfeit') && !m.fft_reported);
+  const doneReported = state.matches.filter(m => (m.status === 'done' || m.status === 'forfeit') && m.fft_reported);
+
+  const formatItem = (m, showFftBtn = false) => {
+    const c = state.rawPlayers.find(p => same(p.id, m.challenger_id))?.name || 'Joueur inconnu';
+    const d = state.rawPlayers.find(p => same(p.id, m.defender_id))?.name || 'Joueur inconnu';
+    return `
+      <div class="row">
+        <span><b>${esc(c)}</b> vs <b>${esc(d)}</b> ${m.score ? '— Score: ' + esc(m.score) : ''} (${esc(m.status)})</span>
+        <div style="display:flex;gap:6px">
+          ${showFftBtn ? `<button class="btn btn-success" onclick="toggleFFT('${m.id}', true)">✅ Valider FFT</button>` : ''}
+          ${m.fft_reported ? `<button class="btn btn-warn" onclick="toggleFFT('${m.id}', false)">↩️ Annuler FFT</button>` : ''}
+        </div>
+      </div>`;
+  };
+
+  const container = $('adminMatchesList');
+  if (!container) return;
+  container.innerHTML = `
+    <h4 style="color:#eab308;margin-top:10px">⏳ Matchs en cours / en attente (${pending.length})</h4>
+    ${pending.length ? pending.map(m => formatItem(m)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match en cours</p>'}
+
+    <h4 style="color:#ef4444;margin-top:15px">⚠️ Matchs terminés — À SAISIR SUR FFT (${doneUnreported.length})</h4>
+    ${doneUnreported.length ? doneUnreported.map(m => formatItem(m, true)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match à saisir</p>'}
+
+    <h4 style="color:#22c55e;margin-top:15px">✅ Matchs archivés — Déjà saisis FFT (${doneReported.length})</h4>
+    ${doneReported.length ? doneReported.map(m => formatItem(m)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match archivé</p>'}
+  `;
+}
+
+async function toggleFFT(matchId, status) {
+  const { error } = await _supabase.from('matches').update({ fft_reported: status }).eq('id', matchId);
+  if (dbFail(error, 'Mise à jour FFT')) return;
+  await loadData();
+  renderAdminMatches();
+}
 </script>
 </body>
 </html>
