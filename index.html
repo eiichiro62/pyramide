@@ -728,7 +728,7 @@ function renderAdminClubs() {
     </div>
   `).join('');
 }
-function switchTab(id) {
+async function switchTab(id) {
   document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
   $(id).classList.add('active');
@@ -736,6 +736,8 @@ function switchTab(id) {
   if (b) b.classList.add('active');
   
   if (id === 'adminTab') {
+    // On recharge les données pour être sûr d'avoir la liste à jour
+    await loadData();
     renderAdminMatches();
     renderAdminPlayers();
     renderAdminChat();
