@@ -576,7 +576,15 @@ async function logout() {
 
 function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)) || state.me; }
 function isAdmin() { return !!state.me && state.me.role === 'admin'; }
-function checkAdminAccess() { $('adminTabBtn').style.display = (isAdmin() || state.isSuperAdmin) ? 'inline-block' : 'none'; }
+function checkAdminAccess() {
+  const btn = $('adminTabBtn');
+  if (!btn) return;
+  
+  // Sécurité : on vérifie si la fonction isAdmin existe, sinon on teste directement le profil
+  const userIsAdmin = (typeof isAdmin === 'function') ? isAdmin() : (state.me && (state.me.is_admin || state.me.role === 'admin'));
+  
+  btn.style.display = (userIsAdmin || state.isSuperAdmin) ? 'inline-block' : 'none';
+}
 function getCurrentUserIndex() { return state.players.findIndex(p => same(p.id, state.currentUserId)); }
 
 /* ---------- Navigation entre clubs (super-admin) ---------- */
