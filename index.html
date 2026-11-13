@@ -1034,11 +1034,27 @@ function renderAdminPlayers() {
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="updateFFTRank('${p.id}')">FFT</button>
       <button class="btn" onclick="movePlayerToPosition('${p.id}')">↕️ Déplacer</button>
+      <button class="btn" onclick="adminSetPassword('${p.id}')">🔑 Mot de passe</button>
       <button class="btn btn-warn" onclick="toggleVisibility('${p.id}')">${p.is_hidden ? 'Afficher' : 'Masquer'}</button>
       <button class="btn ${blocked ? 'btn-success' : 'btn-danger'}" onclick="toggleBlock('${p.id}')">${blocked ? 'Débloquer' : 'Bloquer'}</button>
       <select style="width:auto" onchange="changePlayerClub('${p.id}', this.value)">${clubOptions(p.club_id)}</select>
       <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">Supprimer</button></div></div>`;
   }).join('');
+}
+async function adminSetPassword(id) {
+  const p = admin.rawPlayers.find(x => same(x.id, id));
+  if (!p.user_id) return alert("Ce joueur n'a pas encore de compte (il ne s'est jamais inscrit).");
+  const pw = prompt(`Nouveau mot de passe pour ${p.name} (6 caractères minimum) :`);
+  if (pw === null) return;
+  if (pw.length < 6) return alert('6 caractères minimum.');
+  const { data, error } = await _supabase.functions.invoke('admin-set-password', { body: { player_id: String(id), password: pw } });
+  let msg = data && data.error;
+  if (error) {
+    msg = error.message;
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) { /* message générique */ }
+  }
+  if (msg) return alert('Erreur : ' + msg);
+  alert(`✅ Mot de passe de ${p.name} modifié.\nCommuniquez-le lui : il pourra se connecter tout de suite.`);
 }
 async function toggleBlock(id) {
   const p = admin.rawPlayers.find(x => same(x.id, id));
