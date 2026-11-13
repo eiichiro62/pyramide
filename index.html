@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -147,7 +147,7 @@ input,select{width:100%;padding:10px;border-radius:6px;border:1px solid var(--bd
   <div id="pyramidTab" class="tab-content active">
     <div class="rules-grid">
       <div class="rule-card"><h4>🎯 Défis éligibles</h4>Vous pouvez défier tous les joueurs <b>éligibles</b> (en surbrillance jaune).</div>
-      <div class="rule-card"><h4>⏳ Délais & Réservation</h4><b>1 semaine</b> pour jouer le match. Le challenger réserve le terrain et apporte les balles.</div>
+      <div class="rule-card"><h4>⏳ Délais & Réservation</h4>Le joueur défié a <b>3 jours</b> pour répondre (sans réponse : refus automatique). Une fois accepté, vous avez <b>10 jours en tout</b>, comptés depuis le défi, pour jouer. Le challenger réserve le terrain et apporte les balles.</div>
       <div class="rule-card"><h4>⚠️ Refus & Disqualification</h4>Un refus fait <b>perdre votre place</b>. <b>5 refus = disqualification</b>.</div>
       <div class="rule-card"><h4>✅ Résultat</h4>Un joueur saisit le score. L'autre a <b>1h</b> pour contester, sinon c'est validé automatiquement.</div>
     </div>
@@ -274,29 +274,17 @@ function computePyramid(players, matches, checkpoint) {
   const startIdx = {}, stats = {};
   order.forEach((p, i) => { startIdx[p.id] = i; stats[p.id] = { played: 0, wins: 0, refusals: 0 }; });
 
-  const now = new Date();
-
-  // Vérification automatique des défis expirés (> 3 jours sans réponse)
-  matches.forEach(m => {
-    if (m.status === 'pending' && m.created_at) {
-      const created = new Date(m.created_at);
-      const diffDays = (now - created) / (1000 * 60 * 60 * 24);
-      if (diffDays > 3) {
-        m.status = 'forfeit';
-        m.winner_id = m.challenger_id;
-      }
-    }
-  });
-
   const allDone = matches.filter(m => m.status === 'done' || m.status === 'forfeit')
     .sort((a, b) => new Date(a.played_at || a.created_at) - new Date(b.played_at || b.created_at));
 
+  // Les statistiques comptent TOUT l'historique, même les matchs antérieurs à un repositionnement manuel
   for (const m of allDone) {
     if (m.status === 'done') [m.challenger_id, m.defender_id].forEach(id => stats[id] && stats[id].played++);
     if (m.status === 'forfeit' && stats[m.defender_id]) stats[m.defender_id].refusals++;
     if (stats[m.winner_id]) stats[m.winner_id].wins++;
   }
 
+  // Le glissement des positions ne rejoue que les matchs postérieurs au dernier repositionnement manuel de l'admin
   const slideMatches = checkpoint ? allDone.filter(m => new Date(m.played_at || m.created_at) > new Date(checkpoint)) : allDone;
   for (const m of slideMatches) {
     if (!same(m.winner_id, m.challenger_id)) continue;
@@ -321,20 +309,10 @@ function computePyramid(players, matches, checkpoint) {
 }
 
 async function loadData() {
-  // Filet de sécurité anti-plantage si viewClub n'est pas encore défini
-  if (!state.viewClub || !state.viewClub.id) {
-    if (state.me && state.me.club_id) {
-      const { data: c } = await _supabase.from('clubs').select('*').eq('id', state.me.club_id).maybeSingle();
-      if (c) state.viewClub = c;
-    }
-    if (!state.viewClub || !state.viewClub.id) return; // On attend que le club soit chargé
-  }
-
   const clubId = state.viewClub.id;
   const { data: players, error: e1 } = await _supabase.from('players').select('*').eq('club_id', clubId);
   const { data: matches, error: e2 } = await _supabase.from('matches').select('*').eq('club_id', clubId);
   const { data: messages, error: e3 } = await _supabase.from('messages').select('*').eq('club_id', clubId);
-  
   if (e1 || e2 || e3) console.error('Chargement des données :', e1 || e2 || e3);
   state.rawPlayers = players || [];
   state.matches = matches || [];
@@ -367,6 +345,60 @@ async function placeNewPlayer(id) {
   }
   await loadData();
 }
+
+/* ---------- Notifications (en app) ---------- */
+async function notify(clubId, playerId, type, text, matchId = null) {
+  if (!playerId) return;
+  const { error } = await _supabase.from('notifications').insert([{ club_id: clubId, player_id: playerId, type, text, match_id: matchId }]);
+  if (error) console.error('Notification non créée :', error.message);
+}
+
+async function notifyPositionChanges(clubId, beforePlayers, afterPlayers) {
+  const beforeIdx = {};
+  beforePlayers.forEach((p, i) => beforeIdx[p.id] = i);
+  for (let i = 0; i < afterPlayers.length; i++) {
+    const p = afterPlayers[i];
+    const prev = beforeIdx[p.id];
+    if (prev !== undefined && i > prev) {
+      const n = i - prev;
+      await notify(clubId, p.id, 'position', `Vous avez perdu ${n > 1 ? n + ' places' : 'une place'} : vous êtes maintenant #${i + 1}.`);
+    }
+  }
+}
+
+function renderNotifications() {
+  const unread = state.notifications.filter(n => !n.is_read).length;
+  const badge = $('notifBadge');
+  badge.style.display = unread > 0 ? 'inline-block' : 'none';
+  badge.textContent = unread;
+  $('notifList').innerHTML = state.notifications.length
+    ? state.notifications.map(n => `<div class="row" style="cursor:pointer" onclick="markNotifRead('${n.id}')">
+        <span style="${n.is_read ? 'color:var(--text-muted)' : 'font-weight:bold'}">${esc(n.text)}</span></div>`).join('')
+    : '<p style="color:var(--text-muted);padding:10px 0">Aucune notification.</p>';
+}
+function toggleNotifPanel() { const p = $('notifPanel'); p.style.display = p.style.display === 'block' ? 'none' : 'block'; }
+async function markNotifRead(id) {
+  await _supabase.from('notifications').update({ is_read: true }).eq('id', id);
+  await loadData(); renderNotifications();
+}
+async function markAllNotifsRead() {
+  const ids = state.notifications.filter(n => !n.is_read).map(n => n.id);
+  if (ids.length) await _supabase.from('notifications').update({ is_read: true }).in('id', ids);
+  await loadData(); renderNotifications();
+}
+async function checkBrowserNotifications() {
+  const fresh = state.notifications.filter(n => !n.is_read && !seenNotifIds.has(n.id));
+  seenNotifIds = new Set(state.notifications.map(n => n.id));
+  if (pushActive || !('Notification' in window) || Notification.permission !== 'granted') return;
+  for (const n of fresh) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.showNotification('🎾 Pyramide du Club', { body: n.text, icon: 'logo.png' });
+      else new Notification('🎾 Pyramide du Club', { body: n.text });
+    } catch (e) { console.error(e); }
+  }
+}
+
 async function sendTestNotification() {
   const { error } = await _supabase.from('notifications').insert([{
     club_id: state.myClub.id, player_id: state.currentUserId, type: 'test', text: '🧪 Notification de test : tout fonctionne !'
@@ -443,6 +475,8 @@ function showLogin() { authMsg(''); hideAllAuthForms(); $('loginForm').style.dis
 function showForgot() { authMsg(''); hideAllAuthForms(); $('forgotForm').style.display = 'block'; }
 function showReset() { authMsg(''); hideAllAuthForms(); $('resetForm').style.display = 'block'; }
 
+let isRecoveryFlow = false;
+
 async function boot() {
   $('fftRank').innerHTML = SIGNUP_RANKS.map(r => `<option value="${r}">${r}</option>`).join('');
 
@@ -458,32 +492,31 @@ async function boot() {
     }
   }
 
+  // Lien de récupération : soit #access_token=...&type=recovery (ancien flux), soit ?code=... (flux PKCE actuel).
+  // Dans les deux cas on affiche le formulaire de nouveau mot de passe et on empêche enterApp() de prendre la main.
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const looksLikeRecoveryLink = hashParams.get('type') === 'recovery' || new URLSearchParams(location.search).has('code');
+
   // Gestion événementielle de la session : couvre la récupération de mot de passe,
   // la déconnexion (ex. jeton invalidé ailleurs) et une reconnexion arrivant après coup.
   _supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY' || location.hash.includes('type=recovery')) { 
-      showAuth(); 
-      showReset(); 
-      return; 
-    }
+    if (event === 'PASSWORD_RECOVERY') { isRecoveryFlow = true; showAuth(); showReset(); return; }
     if (event === 'SIGNED_OUT') { showAuth(); showLogin(); return; }
     if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session
-        && $('appRoot').style.display === 'none' && !location.hash.includes('type=recovery')) {
+        && $('appRoot').style.display === 'none' && !isRecoveryFlow && !looksLikeRecoveryLink) {
       enterApp(session.user);
     }
   });
 
-  if (location.hash.includes('type=recovery')) {
-    showAuth();
-    showReset();
-  } else {
-    let { data: { session } } = await _supabase.auth.getSession();
-    if (!session) {
-      try { const r = await _supabase.auth.refreshSession(); session = r.data.session; } catch (e) { /* pas grave */ }
-    }
-    if (session) await enterApp(session.user);
-    else showAuth();
+  let { data: { session } } = await _supabase.auth.getSession();
+  if (!session) {
+    // Filet de sécurité : si le jeton d'accès a expiré mais qu'un jeton de
+    // rafraîchissement valide existe encore, on retente avant d'abandonner.
+    try { const r = await _supabase.auth.refreshSession(); session = r.data.session; } catch (e) { /* pas grave */ }
   }
+  if (isRecoveryFlow || looksLikeRecoveryLink) { showAuth(); showReset(); return; }
+  if (session) await enterApp(session.user);
+  else showAuth();
 }
 
 $('loginForm').onsubmit = async e => {
@@ -497,8 +530,7 @@ $('loginForm').onsubmit = async e => {
 $('forgotForm').onsubmit = async e => {
   e.preventDefault(); authMsg('');
   const email = $('forgotEmail').value.trim();
-  const redirectUrl = window.location.origin + window.location.pathname;
-  const { error } = await _supabase.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
+  const { error } = await _supabase.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
   if (error) return authMsg(error.message);
   authMsg('Email envoyé ! Vérifiez votre boîte de réception (et les spams) puis cliquez sur le lien reçu.');
 };
@@ -508,7 +540,8 @@ $('resetForm').onsubmit = async e => {
   const password = $('resetPassword').value;
   const { error } = await _supabase.auth.updateUser({ password });
   if (error) return authMsg(error.message);
-  history.replaceState(null, '', location.pathname + location.search);
+  history.replaceState(null, '', location.pathname);
+  isRecoveryFlow = false;
   authMsg('Mot de passe mis à jour ! Connexion...');
   const { data: { user } } = await _supabase.auth.getUser();
   if (user) await enterApp(user); else showLogin();
@@ -556,13 +589,11 @@ async function enterApp(user) {
   state.isSuperAdmin = !!sa;
   if (state.isSuperAdmin) await loadAllClubs();
 
-  $('authScreen').style.display = 'none';
-  $('appRoot').style.display = 'block';
   await loadData();
   seenNotifIds = new Set(state.notifications.map(n => n.id));
-  updateView(); 
-  checkAdminAccess(); // <--- Vérifie bien que cette ligne est présente ici
-  renderViewClubSelector();
+  $('authScreen').style.display = 'none';
+  $('appRoot').style.display = 'block';
+  updateView(); checkAdminAccess(); renderViewClubSelector();
   setupPush();
 }
 
@@ -577,18 +608,8 @@ async function logout() {
 }
 
 function currentUser() { return state.rawPlayers.find(p => same(p.id, state.currentUserId)) || state.me; }
-function isAdmin() { 
-  return !!state.me && (state.me.role === 'admin' || state.me.is_admin === true); 
-}
-
-function checkAdminAccess() {
-  const btn = $('adminTabBtn');
-  if (!btn) return;
-  
-  // On vérifie si l'utilisateur est admin ou super-admin avec une sécurité sur l'objet state.me
-  const userIsAdmin = isAdmin() || (state.me && (state.me.role === 'admin' || state.me.is_admin));
-  btn.style.display = (userIsAdmin || state.isSuperAdmin) ? 'inline-block' : 'none';
-}
+function isAdmin() { return !!state.me && state.me.role === 'admin'; }
+function checkAdminAccess() { $('adminTabBtn').style.display = (isAdmin() || state.isSuperAdmin) ? 'inline-block' : 'none'; }
 function getCurrentUserIndex() { return state.players.findIndex(p => same(p.id, state.currentUserId)); }
 
 /* ---------- Navigation entre clubs (super-admin) ---------- */
@@ -614,102 +635,14 @@ async function switchViewClub(clubId) {
 
 /* ---------- Affichage ---------- */
 function updateView() { renderPyramid(); renderGeneralChat(); renderMatches(); renderStats(); updateHonors(); renderNotifications(); renderHistory(); }
-// --- Rendu de la gestion des Joueurs dans l'Admin ---
-function renderAdminPlayers() {
-  const container = $('adminPlayersList');
-  if (!container) return;
-  if (!state.rawPlayers || !state.rawPlayers.length) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Aucun joueur inscrit.</p>';
-    return;
-  }
 
-  container.innerHTML = state.rawPlayers.map(p => `
-    <div class="row">
-      <div>
-        <b>${esc(p.name)}</b> (${esc(p.gender || 'H')}, FFT: ${esc(p.fft_rank || 'NC')})
-        ${p.is_disqualified ? ' <span style="color:var(--busy-color);font-weight:bold">[DISQUALIFIÉ]</span>' : ''}
-      </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn ${p.is_disqualified ? 'btn-success' : 'btn-warn'}" onclick="toggleDisqualify('${p.id}', ${!p.is_disqualified})">
-          ${p.is_disqualified ? 'Réintégrer' : 'Disqualifier'}
-        </button>
-        <button class="btn btn-danger" onclick="deletePlayer('${p.id}')">🗑️ Supprimer</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-// --- Action : Disqualifier ou réintégrer un joueur ---
-async function toggleDisqualify(playerId, status) {
-  const { error } = await _supabase.from('players').update({ is_disqualified: status }).eq('id', playerId);
-  if (dbFail(error, 'Modification du statut du joueur')) return;
-  await loadData();
-  renderAdminPlayers();
-}
-
-// --- Action : Supprimer un joueur ---
-async function deletePlayer(playerId) {
-  if (!confirm("Voulez-vous vraiment supprimer ce joueur ? Cette action est irréversible.")) return;
-  const { error } = await _supabase.from('players').delete().eq('id', playerId);
-  if (dbFail(error, 'Suppression du joueur')) return;
-  await loadData();
-  renderAdminPlayers();
-}
-
-// --- Rendu de la modération du Chat dans l'Admin ---
-function renderAdminChat() {
-  const container = $('adminChatList');
-  if (!container) return;
-  if (!state.generalChat || !state.generalChat.length) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Aucun message dans le chat.</p>';
-    return;
-  }
-
-  const recentMsgs = [...state.generalChat].reverse().slice(0, 20);
-  container.innerHTML = recentMsgs.map(m => {
-    const sender = state.rawPlayers.find(p => same(p.id, m.sender_id))?.name || 'Inconnu';
-    return `
-      <div class="row">
-        <span><b>${esc(sender)}</b> : ${esc(m.content)}</span>
-        <button class="btn btn-danger" onclick="deleteChatMessage('${m.id}')">🗑️ Supprimer</button>
-      </div>
-    `;
-  }).join('');
-}
-
-// --- Action : Supprimer un message du chat ---
-async function deleteChatMessage(msgId) {
-  const { error } = await _supabase.from('messages').delete().eq('id', msgId);
-  if (dbFail(error, 'Suppression du message')) return;
-  await loadData();
-  renderAdminChat();
-}
-
-// --- Rendu de la liste des Clubs (pour super-admin) ---
-function renderAdminClubs() {
-  const container = $('clubsList');
-  if (!container || !state.allClubs) return;
-  container.innerHTML = state.allClubs.map(c => `
-    <div class="row">
-      <span><b>${esc(c.name)}</b></span>
-      ${c.id === state.viewClub.id ? '<span style="color:var(--active-color)">Club actuel</span>' : ''}
-    </div>
-  `).join('');
-}
-async function switchTab(id) {
+function switchTab(id) {
   document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(e => e.classList.remove('active'));
   $(id).classList.add('active');
   const b = document.querySelector(`.tab-btn[onclick*="'${id}'"]`);
   if (b) b.classList.add('active');
-  
-  if (id === 'adminTab') {
-    await loadData();
-    renderAdminMatches();
-    renderAdminPlayers();
-    renderAdminChat();
-    renderAdminClubs();
-  }
+  if (id === 'adminTab') renderAdminDashboard();
 }
 
 function getRowAndRange(index) {
@@ -781,15 +714,18 @@ function handlePlayerClick(index) {
 
 async function proposeMatch(cIdx, dIdx) {
   const p1 = state.players[cIdx], p2 = state.players[dIdx];
-  const limit = new Date(); limit.setDate(limit.getDate() + 7);
+  const created = new Date();
+  const limit = new Date(created); limit.setDate(limit.getDate() + 10);       // 10 jours en tout pour jouer
+  const respondBy = new Date(created); respondBy.setDate(respondBy.getDate() + 3); // 3 jours pour répondre
   const { data: nm, error } = await _supabase.from('matches').insert([{
     challenger_id: p1.id, defender_id: p2.id, status: 'pending',
     limit_date: limit.toISOString().split('T')[0], club_id: state.viewClub.id
   }]).select().single();
   if (dbFail(error, 'création du défi')) return;
+  const fr = d => d.toLocaleDateString('fr-FR');
   await _supabase.from('messages').insert([{ match_id: nm.id, sender_name: 'Système', club_id: state.viewClub.id,
-    text: `Défi proposé par ${p1.name}. Date limite : ${limit.toLocaleDateString('fr-FR')}.` }]);
-  await notify(state.viewClub.id, p2.id, 'defi', `${p1.name} vous défie ! À jouer avant le ${limit.toLocaleDateString('fr-FR')}.`, nm.id);
+    text: `Défi proposé par ${p1.name}. ${p2.name} a jusqu'au ${fr(respondBy)} pour répondre (sinon refus automatique). Match à jouer avant le ${fr(limit)}.` }]);
+  await notify(state.viewClub.id, p2.id, 'defi', `${p1.name} vous défie ! Répondez avant le ${fr(respondBy)} (sinon refus automatique). Match à jouer avant le ${fr(limit)}.`, nm.id);
   await loadData(); updateView(); switchTab('matchesTab');
 }
 
@@ -818,6 +754,16 @@ function timeLeftLabel(playedAt) {
   return mins >= 60 ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}` : `${mins} min`;
 }
 
+function daysLeftLabel(deadline) {
+  const diff = new Date(deadline).getTime() - Date.now();
+  if (diff <= 0) return 'délai dépassé';
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  if (days >= 1) return `${days} jour${days > 1 ? 's' : ''}${hours ? ' ' + hours + 'h' : ''}`;
+  const mins = Math.floor((diff % 3600000) / 60000);
+  return `${hours}h${String(mins).padStart(2, '0')}`;
+}
+
 function renderMatches() {
   const container = $('matchesList');
   const active = state.matches.filter(m => ['pending', 'accepted', 'pending_confirmation'].includes(m.status));
@@ -834,9 +780,12 @@ function renderMatches() {
     let actions = '';
 
     if (m.status === 'pending') {
+      const respondBy = new Date(m.created_at); respondBy.setDate(respondBy.getDate() + 3);
+      const left = daysLeftLabel(respondBy);
       actions = isDef
-        ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button><button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button></div>`
-        : `<p style="margin-top:10px;color:var(--pending-color)">En attente de ${esc(p2.name)}...</p>`;
+        ? `<div style="margin-top:10px"><p style="font-size:.85rem;color:var(--pending-color)">⏳ Il vous reste <b>${left}</b> pour répondre, sinon c'est un refus automatique.</p>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button><button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button></div></div>`
+        : `<p style="margin-top:10px;color:var(--pending-color)">En attente de ${esc(p2.name)}... (refus automatique dans ${left} sans réponse)</p>`;
     } else if (m.status === 'pending_confirmation') {
       const winnerName = esc((state.players.find(p => same(p.id, m.winner_id)) || {}).name || '?');
       const left = timeLeftLabel(m.played_at);
@@ -852,7 +801,8 @@ function renderMatches() {
         actions = `<p style="margin-top:10px;color:var(--pending-color)">Résultat saisi (victoire de ${winnerName}), validation automatique dans ${left} sans contestation.</p>`;
       }
     } else if (m.status === 'accepted' && isParticipant) {
-      actions = `<div style="margin-top:10px"><p style="margin-bottom:5px">Saisir le résultat :</p>
+      const playLeft = daysLeftLabel(new Date(m.limit_date + 'T23:59:59'));
+      actions = `<div style="margin-top:10px"><p style="font-size:.85rem;color:var(--pending-color);margin-bottom:6px">⏳ Il reste <b>${playLeft}</b> pour jouer ce match.</p><p style="margin-bottom:5px">Saisir le résultat :</p>
         <input type="text" id="scoreInput-${m.id}" placeholder="Score (ex : 6-4 3-6 10-7)" style="margin-bottom:8px">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p1.id}')">Victoire ${esc(p1.name)}</button>
@@ -873,7 +823,7 @@ function renderMatches() {
 
     return `<div style="background:var(--bg-color);border:1px solid var(--bd);padding:15px;border-radius:8px;margin-bottom:15px;text-align:left">
       <h3>🎾 ${esc(p1.name)} VS ${esc(p2.name)}</h3>
-      <p style="font-size:.8rem;color:var(--text-muted)">Fin de validité : ${esc(m.limit_date)}</p>${actions}${chatHtml}</div>`;
+      <p style="font-size:.8rem;color:var(--text-muted)">Match à jouer avant le : ${esc(m.limit_date)}</p>${actions}${chatHtml}</div>`;
   }).join('');
 }
 
@@ -1112,15 +1062,40 @@ async function deletePlayer(id) {
 function renderAdminMatches() {
   const box = $('adminMatchesList');
   const name = id => esc((admin.rawPlayers.find(p => same(p.id, id)) || {}).name || '?');
-  const list = [...admin.matches].reverse();
-  if (!list.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match.</p>'; return; }
-  box.innerHTML = list.map(m => `<div style="padding:8px;border-bottom:1px solid var(--bd);text-align:left">
-    <b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b> — ${esc(m.status)}${m.winner_id ? ' · gagnant proposé : ' + name(m.winner_id) : ''}${m.score ? ' · ' + esc(m.score) : ''}
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+  if (!admin.matches.length) { box.innerHTML = '<p style="color:var(--text-muted)">Aucun match.</p>'; return; }
+  const when = m => new Date(m.played_at || m.created_at);
+  const ongoing = admin.matches.filter(m => ['pending', 'accepted', 'pending_confirmation'].includes(m.status))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const finished = admin.matches.filter(m => m.status === 'done' || m.status === 'forfeit').sort((a, b) => when(b) - when(a));
+  const toEnter = finished.filter(m => !m.fft_entered);
+  const entered = finished.filter(m => m.fft_entered);
+  const statusLabel = { pending: 'en attente de réponse', accepted: 'accepté, à jouer', pending_confirmation: 'score à confirmer', done: 'terminé', forfeit: 'refus / forfait' };
+
+  const buttons = m => `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn" onclick="adminSetWinner('${m.id}','${m.challenger_id}')">Gagnant : ${name(m.challenger_id)}</button>
       <button class="btn" onclick="adminSetWinner('${m.id}','${m.defender_id}')">Gagnant : ${name(m.defender_id)}</button>
       <button class="btn btn-warn" onclick="adminReopen('${m.id}')">Rouvrir</button>
-      <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button></div></div>`).join('');
+      <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button></div>`;
+  const line = m => `<b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b> — ${statusLabel[m.status] || esc(m.status)}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + esc(m.score) : ''}`;
+  const dateTxt = m => `<span style="font-size:.8rem;color:var(--text-muted)"> · ${when(m).toLocaleDateString('fr-FR')}</span>`;
+
+  const ongoingCard = m => `<div style="padding:8px;border-bottom:1px solid var(--bd);text-align:left">${line(m)}${dateTxt(m)}${buttons(m)}</div>`;
+  const finishedCard = m => `<div style="padding:8px;border-bottom:1px solid var(--bd);text-align:left;border-left:4px solid ${m.fft_entered ? 'var(--active-color)' : 'var(--pending-color)'};padding-left:10px;${m.fft_entered ? 'opacity:.75' : ''}">
+      ${line(m)}${dateTxt(m)}
+      <div style="margin-top:6px"><button class="btn ${m.fft_entered ? 'btn-success' : 'btn-warn'}" onclick="adminToggleFftEntered('${m.id}')">${m.fft_entered ? '✅ Saisi sur la FFT (cliquer pour annuler)' : '⏳ Marquer comme saisi sur la FFT'}</button></div>
+      ${buttons(m)}</div>`;
+  const section = (title, list, empty, card) => `<h4 style="margin:18px 0 6px;color:#38bdf8">${title} (${list.length})</h4>${list.length ? list.map(card).join('') : `<p style="color:var(--text-muted)">${empty}</p>`}`;
+
+  box.innerHTML =
+    section('🟠 Matchs en cours', ongoing, 'Aucun match en cours.', ongoingCard) +
+    section('🔴 Matchs terminés — à saisir sur la FFT', toEnter, 'Tout est à jour sur la FFT 👍', finishedCard) +
+    section('✅ Matchs terminés — déjà saisis sur la FFT', entered, 'Aucun match saisi pour l\'instant.', finishedCard);
+}
+async function adminToggleFftEntered(id) {
+  const m = admin.matches.find(x => same(x.id, id));
+  const { error } = await _supabase.from('matches').update({ fft_entered: !m.fft_entered }).eq('id', id);
+  if (dbFail(error, 'mise à jour du suivi FFT')) return;
+  await refreshAdmin();
 }
 async function adminSetWinner(id, winnerId) {
   const before = computePyramid(admin.rawPlayers, admin.matches, admin.club.position_checkpoint);
@@ -1218,45 +1193,6 @@ setInterval(async () => {
   if (document.visibilityState === 'visible' && !userIsTyping()) { updateView(); }
   else { renderNotifications(); }
 }, 15000);
-function renderAdminMatches() {
-  if (!state.matches) return;
-  const pending = state.matches.filter(m => m.status === 'pending' || m.status === 'accepted' || m.status === 'pending_confirmation');
-  const doneUnreported = state.matches.filter(m => (m.status === 'done' || m.status === 'forfeit') && !m.fft_reported);
-  const doneReported = state.matches.filter(m => (m.status === 'done' || m.status === 'forfeit') && m.fft_reported);
-
-  const formatItem = (m, showFftBtn = false) => {
-    const c = state.rawPlayers.find(p => same(p.id, m.challenger_id))?.name || 'Joueur inconnu';
-    const d = state.rawPlayers.find(p => same(p.id, m.defender_id))?.name || 'Joueur inconnu';
-    return `
-      <div class="row">
-        <span><b>${esc(c)}</b> vs <b>${esc(d)}</b> ${m.score ? '— Score: ' + esc(m.score) : ''} (${esc(m.status)})</span>
-        <div style="display:flex;gap:6px">
-          ${showFftBtn ? `<button class="btn btn-success" onclick="toggleFFT('${m.id}', true)">✅ Valider FFT</button>` : ''}
-          ${m.fft_reported ? `<button class="btn btn-warn" onclick="toggleFFT('${m.id}', false)">↩️ Annuler FFT</button>` : ''}
-        </div>
-      </div>`;
-  };
-
-  const container = $('adminMatchesList');
-  if (!container) return;
-  container.innerHTML = `
-    <h4 style="color:#eab308;margin-top:10px">⏳ Matchs en cours / en attente (${pending.length})</h4>
-    ${pending.length ? pending.map(m => formatItem(m)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match en cours</p>'}
-
-    <h4 style="color:#ef4444;margin-top:15px">⚠️ Matchs terminés — À SAISIR SUR FFT (${doneUnreported.length})</h4>
-    ${doneUnreported.length ? doneUnreported.map(m => formatItem(m, true)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match à saisir</p>'}
-
-    <h4 style="color:#22c55e;margin-top:15px">✅ Matchs archivés — Déjà saisis FFT (${doneReported.length})</h4>
-    ${doneReported.length ? doneReported.map(m => formatItem(m)).join('') : '<p style="color:var(--text-muted);font-size:.85rem">Aucun match archivé</p>'}
-  `;
-}
-
-async function toggleFFT(matchId, status) {
-  const { error } = await _supabase.from('matches').update({ fft_reported: status }).eq('id', matchId);
-  if (dbFail(error, 'Mise à jour FFT')) return;
-  await loadData();
-  renderAdminMatches();
-}
 </script>
 </body>
 </html>
