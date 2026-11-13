@@ -764,19 +764,37 @@ function daysLeftLabel(deadline) {
   return `${hours}h${String(mins).padStart(2, '0')}`;
 }
 
+const openPanels = new Set();
+function panelToggled(key, el) { el.open ? openPanels.add(key) : openPanels.delete(key); }
+
 function renderMatches() {
   const container = $('matchesList');
-  const active = state.matches.filter(m => ['pending', 'accepted', 'pending_confirmation'].includes(m.status));
-  if (!active.length) { container.innerHTML = "<div class='action-panel'><p>Aucun défi en cours.</p></div>"; return; }
   const me = currentUser();
+  const isMine = m => !!me && (same(me.id, m.challenger_id) || same(me.id, m.defender_id));
+  const live = state.matches.filter(m => ['pending', 'accepted', 'pending_confirmation'].includes(m.status));
+  const mineLive = live.filter(isMine), otherLive = live.filter(m => !isMine(m));
+  const minePast = state.matches.filter(m => (m.status === 'done' || m.status === 'forfeit') && (isMine(m) || isAdmin() || state.isSuperAdmin))
+    .sort((a, b) => new Date(b.played_at || b.created_at) - new Date(a.played_at || a.created_at));
+  const pl = id => state.rawPlayers.find(p => same(p.id, id));
 
-  container.innerHTML = active.map(m => {
-    const p1 = state.players.find(p => same(p.id, m.challenger_id)), p2 = state.players.find(p => same(p.id, m.defender_id));
+  const chatBlock = m => {
+    const canChat = me && (isMine(m) || isAdmin() || state.isSuperAdmin);
+    if (!canChat) return '';
+    const msgs = getMatchMessages(m.id);
+    return `<details ${openPanels.has('chat-' + m.id) ? 'open' : ''} ontoggle="panelToggled('chat-${m.id}', this)" style="margin-top:12px;border-top:1px solid var(--bd);padding-top:8px">
+      <summary style="cursor:pointer;font-size:.85rem;color:var(--text-muted)">💬 Messages privés (${msgs.length})</summary>
+      <div class="chat-box" style="height:110px;margin-top:8px">${msgs.map(cm => `<div class="chat-msg"><span class="sender">${esc(cm.sender_name)}:</span> ${esc(cm.text)}</div>`).join('')}</div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <input type="text" id="matchMsgInput-${m.id}" placeholder="Écrire un message...">
+        <button class="btn" onclick="sendMatchMessage('${m.id}')">Envoyer</button>
+      </div></details>`;
+  };
+
+  const liveCard = m => {
+    const p1 = pl(m.challenger_id), p2 = pl(m.defender_id);
     if (!p1 || !p2) return '';
     const isDef = me && same(me.id, m.defender_id);
-    const isChal = me && same(me.id, m.challenger_id);
-    const isParticipant = isDef || isChal;
-    const canModerate = me && (isParticipant || isAdmin() || state.isSuperAdmin);
+    const isParticipant = isMine(m);
     let actions = '';
 
     if (m.status === 'pending') {
@@ -787,7 +805,7 @@ function renderMatches() {
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-success" onclick="acceptMatch('${m.id}')">Accepter le défi</button><button class="btn btn-danger" onclick="refuseMatch('${m.id}')">Refuser le défi</button></div></div>`
         : `<p style="margin-top:10px;color:var(--pending-color)">En attente de ${esc(p2.name)}... (refus automatique dans ${left} sans réponse)</p>`;
     } else if (m.status === 'pending_confirmation') {
-      const winnerName = esc((state.players.find(p => same(p.id, m.winner_id)) || {}).name || '?');
+      const winnerName = esc((pl(m.winner_id) || {}).name || '?');
       const left = timeLeftLabel(m.played_at);
       if (isParticipant && !same(me.id, m.proposed_by)) {
         actions = `<div style="margin-top:10px">
@@ -808,23 +826,32 @@ function renderMatches() {
         <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p1.id}')">Victoire ${esc(p1.name)}</button>
         <button class="btn btn-success" onclick="resolveMatch('${m.id}','${p2.id}')">Victoire ${esc(p2.name)}</button></div></div>`;
     }
-
-    let chatHtml = '';
-    if (canModerate) {
-      const msgs = getMatchMessages(m.id);
-      chatHtml = `<div style="margin-top:12px;border-top:1px solid var(--bd);padding-top:10px">
-        <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">💬 Message privé entre les deux joueurs</p>
-        <div class="chat-box" style="height:110px">${msgs.map(cm => `<div class="chat-msg"><span class="sender">${esc(cm.sender_name)}:</span> ${esc(cm.text)}</div>`).join('')}</div>
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <input type="text" id="matchMsgInput-${m.id}" placeholder="Écrire un message...">
-          <button class="btn" onclick="sendMatchMessage('${m.id}')">Envoyer</button>
-        </div></div>`;
-    }
-
     return `<div style="background:var(--bg-color);border:1px solid var(--bd);padding:15px;border-radius:8px;margin-bottom:15px;text-align:left">
       <h3>🎾 ${esc(p1.name)} VS ${esc(p2.name)}</h3>
-      <p style="font-size:.8rem;color:var(--text-muted)">Match à jouer avant le : ${esc(m.limit_date)}</p>${actions}${chatHtml}</div>`;
-  }).join('');
+      <p style="font-size:.8rem;color:var(--text-muted)">Match à jouer avant le : ${esc(m.limit_date)}</p>${actions}${chatBlock(m)}</div>`;
+  };
+
+  const pastCard = m => {
+    const p1 = pl(m.challenger_id), p2 = pl(m.defender_id), w = pl(m.winner_id);
+    const date = m.played_at ? new Date(m.played_at).toLocaleDateString('fr-FR') : '';
+    const res = m.status === 'forfeit' ? 'refus / forfait' : (m.score ? esc(m.score) : 'score non renseigné');
+    return `<div style="background:var(--bg-color);border:1px solid var(--bd);padding:12px;border-radius:8px;margin-bottom:10px;text-align:left;opacity:.9">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(p1 ? p1.name : '?')} vs ${esc(p2 ? p2.name : '?')}</b><span style="font-size:.8rem;color:var(--text-muted)">${date}</span></div>
+      <span style="font-size:.85rem;color:var(--active-color)">🏆 ${esc(w ? w.name : '?')} — ${res}</span>${chatBlock(m)}</div>`;
+  };
+
+  let html = '';
+  html += `<h3 style="text-align:left;margin-bottom:10px">⚔️ Mes défis en cours (${mineLive.length})</h3>`;
+  html += mineLive.length ? mineLive.map(liveCard).join('') : "<div class='action-panel' style='margin-bottom:15px'><p>Aucun défi en cours pour vous.</p></div>";
+  if (otherLive.length) {
+    html += `<details ${openPanels.has('others') ? 'open' : ''} ontoggle="panelToggled('others', this)" style="margin-bottom:15px;text-align:left">
+      <summary style="cursor:pointer;font-weight:bold;margin-bottom:10px">👥 Autres défis du club (${otherLive.length})</summary>${otherLive.map(liveCard).join('')}</details>`;
+  }
+  if (minePast.length) {
+    html += `<details ${openPanels.has('past') ? 'open' : ''} ontoggle="panelToggled('past', this)" style="margin-bottom:15px;text-align:left">
+      <summary style="cursor:pointer;font-weight:bold;margin-bottom:10px">📁 Matchs terminés (${minePast.length}) — discussions archivées</summary>${minePast.map(pastCard).join('')}</details>`;
+  }
+  container.innerHTML = html;
 }
 
 async function sendMatchMessage(matchId) {
@@ -1074,9 +1101,10 @@ function renderAdminMatches() {
   const buttons = m => `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn" onclick="adminSetWinner('${m.id}','${m.challenger_id}')">Gagnant : ${name(m.challenger_id)}</button>
       <button class="btn" onclick="adminSetWinner('${m.id}','${m.defender_id}')">Gagnant : ${name(m.defender_id)}</button>
+      <button class="btn btn-success" onclick="adminEditScore('${m.id}')">✏️ Modifier le score</button>
       <button class="btn btn-warn" onclick="adminReopen('${m.id}')">Rouvrir</button>
       <button class="btn btn-danger" onclick="adminDeleteMatch('${m.id}')">Supprimer</button></div>`;
-  const line = m => `<b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b> — ${statusLabel[m.status] || esc(m.status)}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + esc(m.score) : ''}`;
+  const line = m => `<b>${name(m.challenger_id)}</b> vs <b>${name(m.defender_id)}</b> — ${statusLabel[m.status] || esc(m.status)}${m.winner_id ? ' · gagnant : ' + name(m.winner_id) : ''}${m.score ? ' · ' + esc(m.score) : (m.status === 'done' ? ' · <span style="color:var(--pending-color)">⚠️ score manquant</span>' : '')}`;
   const dateTxt = m => `<span style="font-size:.8rem;color:var(--text-muted)"> · ${when(m).toLocaleDateString('fr-FR')}</span>`;
 
   const ongoingCard = m => `<div style="padding:8px;border-bottom:1px solid var(--bd);text-align:left">${line(m)}${dateTxt(m)}${buttons(m)}</div>`;
@@ -1090,6 +1118,14 @@ function renderAdminMatches() {
     section('🟠 Matchs en cours', ongoing, 'Aucun match en cours.', ongoingCard) +
     section('🔴 Matchs terminés — à saisir sur la FFT', toEnter, 'Tout est à jour sur la FFT 👍', finishedCard) +
     section('✅ Matchs terminés — déjà saisis sur la FFT', entered, 'Aucun match saisi pour l\'instant.', finishedCard);
+}
+async function adminEditScore(id) {
+  const m = admin.matches.find(x => same(x.id, id));
+  const v = prompt('Score du match (ex : 6-4 3-6 10-7). Laissez vide pour effacer :', m.score || '');
+  if (v === null) return;
+  const { error } = await _supabase.from('matches').update({ score: v.trim() || null }).eq('id', id);
+  if (dbFail(error, 'modification du score')) return;
+  await refreshAdmin();
 }
 async function adminToggleFftEntered(id) {
   const m = admin.matches.find(x => same(x.id, id));
