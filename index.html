@@ -450,9 +450,9 @@ async function enablePush() {
 
 async function savePushSubscription(sub, silent = false) {
   const json = sub.toJSON();
-  const { error } = await _supabase.from('push_subscriptions').upsert([{
-    player_id: state.currentUserId, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth
-  }], { onConflict: 'endpoint' });
+  const { error } = await _supabase.rpc('save_push_subscription', {
+    p_endpoint: json.endpoint, p_p256dh: json.keys.p256dh, p_auth: json.keys.auth
+  });
   if (error) {
     console.error('Abonnement push non enregistré :', error);
     if (!silent) alert("Abonnement non enregistré : " + error.message);
