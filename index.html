@@ -880,15 +880,14 @@ async function sendMatchMessage(matchId) {
 }
 
 async function acceptMatch(id) {
-  const { error } = await _supabase.from('matches').update({ status: 'accepted' }).eq('id', id);
+  const { error } = await _supabase.rpc('match_accept', { p_match: String(id) });
   if (dbFail(error, "acceptation du défi")) return;
   await loadData(); updateView();
 }
 async function refuseMatch(id) {
   if (!confirm('Refuser ce défi vous fait perdre votre place. Confirmer ?')) return;
   const before = state.players;
-  const m = state.matches.find(x => same(x.id, id));
-  const { error } = await _supabase.from('matches').update({ status: 'forfeit', winner_id: m.challenger_id, played_at: new Date().toISOString() }).eq('id', id);
+  const { error } = await _supabase.rpc('match_refuse', { p_match: String(id) });
   if (dbFail(error, "refus du défi")) return;
   await loadData(); updateView();
   await notifyPositionChanges(state.viewClub.id, before, state.players);
@@ -898,9 +897,7 @@ async function resolveMatch(id, winnerId) {
   const score = input ? input.value.trim() : '';
   const me = currentUser();
   const m = state.matches.find(x => same(x.id, id));
-  const { error } = await _supabase.from('matches').update({
-    status: 'pending_confirmation', winner_id: winnerId, score, played_at: new Date().toISOString(), proposed_by: me.id
-  }).eq('id', id);
+  const { error } = await _supabase.rpc('match_resolve', { p_match: String(id), p_winner: String(winnerId), p_score: score });
   if (dbFail(error, "saisie du résultat")) return;
   const otherId = same(me.id, m.challenger_id) ? m.defender_id : m.challenger_id;
   await notify(state.viewClub.id, otherId, 'result', `${me.name} a saisi un résultat. Vous avez 1h pour le contester, sinon il sera validé automatiquement.`, id);
@@ -908,14 +905,14 @@ async function resolveMatch(id, winnerId) {
 }
 async function confirmResult(id) {
   const before = state.players;
-  const { error } = await _supabase.from('matches').update({ status: 'done' }).eq('id', id);
+  const { error } = await _supabase.rpc('match_confirm', { p_match: String(id) });
   if (dbFail(error, "confirmation du résultat")) return;
   await loadData(); updateView();
   await notifyPositionChanges(state.viewClub.id, before, state.players);
 }
 async function disputeResult(id) {
   if (!confirm('Contester ce résultat ? Le match repassera en attente de saisie.')) return;
-  const { error } = await _supabase.from('matches').update({ status: 'accepted', winner_id: null, score: null, proposed_by: null, played_at: null }).eq('id', id);
+  const { error } = await _supabase.rpc('match_dispute', { p_match: String(id) });
   if (dbFail(error, "contestation du résultat")) return;
   await loadData(); updateView();
 }
