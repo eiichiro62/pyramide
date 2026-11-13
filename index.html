@@ -712,8 +712,22 @@ function handlePlayerClick(index) {
   }
 }
 
+let proposing = false;
 async function proposeMatch(cIdx, dIdx) {
+  if (proposing) return;               // anti double-clic
+  proposing = true;
+  try { await proposeMatchInner(cIdx, dIdx); } finally { proposing = false; }
+}
+async function proposeMatchInner(cIdx, dIdx) {
   const p1 = state.players[cIdx], p2 = state.players[dIdx];
+  // Vérification en direct : un des deux joueurs a-t-il déjà un défi actif ?
+  const { data: busy } = await _supabase.from('matches').select('id')
+    .in('status', ['pending', 'accepted', 'pending_confirmation'])
+    .or(`challenger_id.in.(${p1.id},${p2.id}),defender_id.in.(${p1.id},${p2.id})`).limit(1);
+  if (busy && busy.length) {
+    alert("Un des deux joueurs a déjà un défi en cours. Actualisation...");
+    await loadData(); updateView(); return;
+  }
   const created = new Date();
   const limit = new Date(created); limit.setDate(limit.getDate() + 10);       // 10 jours en tout pour jouer
   const respondBy = new Date(created); respondBy.setDate(respondBy.getDate() + 3); // 3 jours pour répondre
