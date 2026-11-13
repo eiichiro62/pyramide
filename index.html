@@ -334,15 +334,9 @@ async function loadData() {
 function getMatchMessages(matchId) { return state.messages.filter(m => same(m.match_id, matchId)); }
 
 async function placeNewPlayer(id) {
-  await loadData();
-  const started = state.matches.some(m => m.status === 'done' || m.status === 'forfeit');
-  if (!started) {
-    const sorted = sortByFFT(state.rawPlayers.filter(p => !p.is_hidden));
-    await Promise.all(sorted.map((p, i) => _supabase.from('players').update({ start_position: i + 1 }).eq('id', p.id)));
-  } else {
-    const max = Math.max(0, ...state.rawPlayers.map(p => p.start_position || 0));
-    await _supabase.from('players').update({ start_position: max + 1 }).eq('id', id);
-  }
+  // Le placement est fait par la base (fonction sécurisée) : un joueur ne peut pas modifier les positions des autres directement.
+  const { error } = await _supabase.rpc('place_new_player', { p_player: String(id) });
+  if (error) console.error('Placement du joueur :', error.message);
   await loadData();
 }
 
@@ -482,7 +476,8 @@ async function boot() {
 
   const token = new URLSearchParams(location.search).get('invite');
   if (token) {
-    const { data: club } = await _supabase.from('clubs').select('*').eq('invite_token', token).maybeSingle();
+    const { data: found } = await _supabase.rpc('club_by_invite', { p_token: token });
+    const club = found && found[0];
     if (club) {
       inviteClub = club;
       $('signupBox').style.display = 'block';
